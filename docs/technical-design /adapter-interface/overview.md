@@ -1,0 +1,1 @@
+This is the boundary between the daemon and outside world

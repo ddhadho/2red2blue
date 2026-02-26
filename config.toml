@@ -1,0 +1,40 @@
+[daemon]
+name = "smarthome-daemon"
+log_level = "info"
+log_output = "stdout"
+
+[storage]
+wal_path = "/tmp/smarthome/wal"
+snapshot_path = "/tmp/smarthome/snapshots"
+rules_path = "/tmp/smarthome/rules.toml"
+devices_path = "/tmp/smarthome/devices.toml"
+max_wal_size_mb = 512
+snapshot_interval_events = 1000
+
+[adapter]
+kind = "mock"
+url = "ws://localhost:8123/api/websocket"
+reconnect_interval_seconds = 5
+event_dedup_window_ms = 50
+
+[reconciler]
+boot_poll_timeout_seconds = 30
+continuous_poll_interval_seconds = 60
+confidence_degraded_threshold = 0.5
+confidence_unknown_threshold = 0.2
+
+[dispatcher]
+command_timeout_seconds = 5
+max_retries = 3
+retry_delay_ms = 500
+
+[ui]
+enabled = true
+port = 7000
+bind = "0.0.0.0"
+
+[platform]
+kind = "linux"
+watchdog_enabled = true
+watchdog_interval_seconds = 30
+max_memory_mb = 256
