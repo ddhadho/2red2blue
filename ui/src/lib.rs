@@ -23,21 +23,19 @@ pub async fn start(port: u16, state: SharedState) {
             let request = String::from_utf8_lossy(&buf);
 
             if request.starts_with("GET /state") {
-                let state_map = state.lock().unwrap();
-                let body = serde_json::to_string_pretty(&*state_map).unwrap();
+                // 1. Open a new scope to drop the lock early
+                let body = {
+                    let state_map = state.lock().unwrap();
+                    serde_json::to_string_pretty(&*state_map).unwrap()
+                }; // 2. state_map (the MutexGuard) is dropped here!
+
                 let response = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
                     body.len(),
                     body
                 );
-                let _ = socket.write_all(response.as_bytes()).await;
-            } else {
-                let body = r#"{"routes": ["/state"]}"#;
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-                    body.len(),
-                    body
-                );
+
+                // 3. Now it is safe to await because the guard is gone
                 let _ = socket.write_all(response.as_bytes()).await;
             }
         });
