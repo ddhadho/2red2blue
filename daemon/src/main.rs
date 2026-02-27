@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use tracing::info;
 use kernel::config::Config;
 use kernel::ingestor::EventIngestor;
-use kernel::wal::Wal;
+use kernel::wal::{Wal, WalConfig, EventPriority};
 use kernel::state::StateEngine;
 use kernel::rules::RuleEngine;
 use kernel::resolver::ConflictResolver;
@@ -50,11 +50,30 @@ async fn main() -> anyhow::Result<()> {
     // Initialize pipeline components
     let mut adapter = MockAdapter::new();
     let mut ingestor = EventIngestor::new();
-    let mut wal = Wal::new();
     let mut state_engine = StateEngine::new();
     let mut rule_engine = RuleEngine::new();
     let resolver = ConflictResolver::new();
     let dispatcher = CommandDispatcher::new();
+
+    let wal_config = match config.platform.kind.as_str() {
+        "openwrt" => WalConfig::for_openwrt(
+            &config.storage.wal_path,
+            &config.storage.snapshot_path,
+        ),
+        _ => WalConfig::for_linux(
+            &config.storage.wal_path,
+            &config.storage.snapshot_path,
+        ),
+    };
+
+    let mut wal = Wal::open(wal_config)
+        .context("Failed to open WAL")?;
+
+    // Log boot sequence number — this is what proves durability
+    info!(
+        sequence = wal.latest_sequence(),
+        "WAL opened — sequence continues from here"
+    );
 
     // Connect adapter
     adapter.connect().await?;
@@ -70,7 +89,9 @@ async fn main() -> anyhow::Result<()> {
                         // Ingest and normalize
                         if let Some(event) = ingestor.ingest(raw_event) {
                             // Append to WAL
-                            wal.append(event.clone());
+                            let priority = EventPriority::for_kind(&event.kind);
+                            wal.append(event.clone(), priority)
+                               .context("WAL append failed")?;
 
                             // Update state
                             let update = state_engine.apply_event(&event);
@@ -94,7 +115,7 @@ async fn main() -> anyhow::Result<()> {
                             *state_map = state_engine.get_all().clone();
 
                             info!(
-                                wal_size = wal.len(),
+                                wal_sequence = wal.len(),
                                 devices = state_map.len(),
                                 "event loop cycle complete"
                             );
@@ -111,6 +132,10 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }
+
+    // Before adapter.disconnect():
+    info!("flushing WAL buffer before shutdown");
+    wal.flush().context("WAL flush failed")?;
 
     adapter.disconnect().await?;
     info!("smarthome daemon stopped cleanly");
