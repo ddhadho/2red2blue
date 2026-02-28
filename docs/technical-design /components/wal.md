@@ -2,20 +2,35 @@
 
 The Write-Ahead Log (`WAL`) is a durable, append-only log of all events in the system, crucial for crash recovery and maintaining data consistency.
 
-## Trait Definition
+## Implementation
 
 ```rust
 pub enum EventPriority {
-    Critical,   // command lifecycle — bypasses buffer, fsynced immediately
-    Normal,     // everything else — buffered and flushed in batches
+    Critical,  // command lifecycle — bypass buffer, write immediately
+    Normal,    // everything else — buffered, group commit
 }
 
-pub trait Wal {
-    fn append(&mut self, event: Event, priority: EventPriority) -> Result<Sequence, WalError>;
-    fn flush(&mut self) -> Result<(), WalError>;
-    fn replay_from(&self, sequence: Sequence) -> impl Iterator<Item = Event>;
-    fn latest_sequence(&self) -> Sequence;
-    fn snapshot(&mut self) -> Result<Snapshot, WalError>;
+impl EventPriority {
+    pub fn for_kind(kind: &EventKind) -> Self {
+        match kind {
+            EventKind::CommandSent
+            | EventKind::CommandConfirmed
+            | EventKind::CommandFailed
+            | EventKind::SystemBoot
+            | EventKind::SystemShutdown => EventPriority::Critical,
+            _ => EventPriority::Normal,
+        }
+    }
+}
+
+pub struct Wal {
+    pub fn open(config: WalConfig) -> Result<Self, WalError>;
+    pub fn append(&mut self, event: Event, priority: EventPriority) -> Result<u64, WalError>;
+    pub fn flush(&mut self) -> Result<(), WalError>;
+    pub fn replay_from(&self, sequence: u64) -> Result<Vec<Event>, WalError>;
+    pub fn latest_sequence(&self) -> u64;
+    pub fn latest_snapshot_sequence(&self) -> Result<Option<u64>, WalError>;
+    pub fn len(&self) -> u64;
 }
 ```
 
@@ -28,12 +43,14 @@ For most events the answer is no. On boot, reconciliation polls all devices and 
 The events that must survive a crash are command lifecycle events. If `CommandDispatched` is lost, the system reboots, reconciliation finds the gate unlocked, and cannot distinguish between a failed command and a physical intervention. That ambiguity is unsafe.
 
 **Critical** (`EventPriority::Critical`) — fsynced immediately, bypasses buffer:
-- `CommandDispatched`
+- `CommandSent`
 - `CommandConfirmed`
 - `CommandFailed`
+- `SystemBoot`
+- `SystemShutdown`
 
 **Normal** (`EventPriority::Normal`) — accumulated in RAM, flushed in batches:
-- `DeviceStateChanged`, `RuleTriggered`, `RuleConflict`, system events, everything else
+- `DeviceStateChanged`, `RuleTriggered`, `RuleConflict`, and everything else
 
 ## Architecture
 
@@ -47,66 +64,90 @@ The events that must survive a crash are command lifecycle events. If `CommandDi
 │                                     │
 │  Critical Bypass                    │
 │  └── Command events → immediate     │
-│      write to persistent storage    │
+│      write + RESTART checkpoint     │
 │                                     │
 │  Persistent Storage                 │
 │  ├── V1 (eMMC router): SQLite       │
-│  │   fsync on critical, group       │
-│  │   commit on normal               │
+│  │   RESTART checkpoint on critical │
+│  │   group commit on normal         │
 │  └── V3 (flash router): tmpfs hot   │
 │      log + periodic flash snapshot  │
 │      critical events write-through  │
 └─────────────────────────────────────┘
 ```
 
-The `Wal` trait is platform-agnostic. The storage backend and flush thresholds are injected at startup via platform configuration. Daemon code does not change between V1 and V3 deployments.
-
 ## Group Commit
 
-Normal events are not fsynced individually. They accumulate in a RAM buffer and are committed to storage as a batch — flushed when the buffer reaches a size threshold or a timer fires. This is group commit, the mechanism used by PostgreSQL, SQLite in WAL mode, and most production storage systems.
+Normal events accumulate in a RAM buffer and are committed to SQLite in a single transaction
+when either threshold is crossed:
 
-Platform-aware thresholds:
+| Platform | Storage | Buffer Threshold | Timer |
+|---|---|---|---|
+| V1 — high-grade router (GL.iNet MT6000 class) | eMMC | 4 KB | 5 seconds |
+| V3 — cheap consumer router | SPI flash | 4 KB | 30 seconds |
 
-| Platform | Storage | Buffer Threshold | Timer | Critical Events |
-|---|---|---|---|---|
-| V1 — high-grade router (GL.iNet MT6000 class) | eMMC | 4 KB | 5 seconds | Bypass buffer, fsync immediately |
-| V3 — cheap consumer router | SPI flash | 4 KB | 30 seconds | Bypass buffer, write-through to flash |
+At typical event rates (one event per ~5 seconds from a single device), the 4 KB buffer takes
+minutes to fill, so the timer is the dominant flush trigger in practice.
 
-At typical event rates (one event per ~5 seconds from a single device), the 4 KB buffer takes minutes to fill, so the timer is the dominant flush trigger in practice.
+## Critical Event Durability
 
-## Storage Backends
+Critical events bypass the buffer entirely. Before writing, any pending buffer is flushed.
+The event is then written directly to SQLite followed by `PRAGMA wal_checkpoint(RESTART)`.
 
-### V1 — eMMC Router (SQLite)
+`RESTART` blocks until all WAL frames are written to the main database file and the OS has
+flushed to disk. This is the hard durability guarantee — a power cut after `RESTART` returns
+cannot lose the event.
 
-SQLite in WAL mode with group commit. Normal events accumulate in the RAM buffer and are written in a single transaction on flush. Critical events bypass the buffer and are written and fsynced immediately.
+`PASSIVE` checkpoint was considered but rejected — it does not wait for readers and does not
+guarantee the write has reached disk. It is not sufficient for critical event durability.
 
-eMMC has built-in controller-level wear leveling, which spreads writes across cells transparently. Rated at 3,000–10,000 write cycles per cell, but effective lifespan is much longer due to leveling. Aggressive fsync on every normal event would be survivable on eMMC, but group commit is built in from the start because it costs one afternoon and makes V3 a configuration change rather than a rewrite.
+The connection uses `synchronous=NORMAL` so normal buffered writes do not pay the fsync cost.
+Only critical events trigger the full `RESTART` checkpoint.
 
-### V3 — Cheap Flash Router (tmpfs + Snapshot)
+## SQLite Configuration
 
-SPI flash has no wear leveling. Raw endurance is high per-cell but writes concentrate on the same sectors, making frequent fsync a device-bricking risk in practice.
+```sql
+PRAGMA journal_mode=WAL;       -- enables concurrent reads during writes
+PRAGMA synchronous=NORMAL;     -- normal events: no per-write fsync
+PRAGMA cache_size=1000;
+PRAGMA temp_store=memory;
+```
 
-The hot WAL lives in tmpfs (RAM). Periodic snapshots flush accumulated state to flash at controlled intervals. Critical events write through to flash immediately, bypassing the snapshot timer.
+Critical events override durability at write time via `wal_checkpoint(RESTART)`.
 
-The gap between the last snapshot and a crash is the durability window for normal events. This is acceptable because reconciliation recovers them on reboot. The write-through path for critical events preserves the command-lifecycle safety guarantee.
+## Replay
 
-This backend shares the same `Wal` trait as V1. No daemon changes required.
+```rust
+pub fn replay_from(&self, sequence: u64) -> Result<Vec<Event>, WalError>
+```
+
+Returns all events from `sequence` onwards in order. Used by the boot sequence after loading
+the latest snapshot to replay only the events the snapshot does not cover.
 
 ## Snapshots
 
-Snapshots are periodic — every N events or every T minutes, the current full state is written to a snapshot file. On boot, the latest snapshot is loaded and only WAL entries after the snapshot sequence are replayed. This keeps boot time fast as the WAL grows.
+Snapshots are recorded every `snapshot_interval_events` (default 1000). The snapshot path
+and sequence are recorded in the `snapshots` table. The last two snapshots are retained —
+older ones are pruned automatically.
+
+`latest_snapshot_sequence()` returns the sequence of the most recent snapshot, used by the
+boot sequence to determine the replay start point.
 
 ## Boot Sequence
 
-1. Find latest snapshot → load state at sequence N.
-2. Replay WAL from sequence N+1 → present.
-3. Reconcile: poll all devices and resolve any ambiguity from in-flight commands found in the log.
-4. State is now current.
+1. Call `latest_snapshot_sequence()` → get sequence N (or 0 if no snapshot exists).
+2. Load snapshot state at sequence N.
+3. Call `replay_from(N + 1)` → replay all events after the snapshot.
+4. Reconcile: poll all devices and resolve any ambiguity from in-flight commands.
+5. State is now current.
 
 ## Retention Policy
 
-The WAL never deletes entries until a newer snapshot covers them. The last two snapshots are kept for safety.
+The WAL never deletes event rows. Snapshots act as the compaction mechanism — on boot only
+events after the latest snapshot are replayed, so the effective log is always bounded.
+The last two snapshots are kept for safety.
 
 ## Scope
 
-Implement the SQLite backend for the V1 eMMC router target, with group commit for normal events and critical bypass for command lifecycle events. The `EventPriority` parameter and `flush` method are part of the interface from day one so the V3 flash backend can be added later as a new implementation with no interface or daemon changes.
+V1 implements the SQLite backend for the eMMC router target. The V3 tmpfs backend is
+deferred — it will implement the same public interface with no daemon changes required.

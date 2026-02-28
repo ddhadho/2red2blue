@@ -1,25 +1,69 @@
-# Sits at the boundary between HA and the system. Its job is normalization and deduplication.
+# Event Ingestor
 
-## Trait Definition
+Sits at the boundary between the adapter and the system. Its job is normalization and
+deduplication. This is the only component that knows what an external `entity_id` looks like.
+Everything above this layer speaks the internal model only.
+
+## Implementation
 
 ```rust
-trait EventIngestor {
-    fn ingest(&mut self, raw: RawHAEvent) -> Result<Option<Event>, IngestError>;
+pub struct EventIngestor {
+    registry: Arc<DeviceRegistry>,
+    sequence: u64,
+    last_events: HashMap<DeviceId, (u64, Value)>,
+    dedup_window_ms: u64,
 }
 ```
 
-## Deduplication and Normalization
-
-The `ingest` method returns `Option<Event>` — it can swallow a raw event if it's a duplicate or not relevant. The deduplication window is 50ms — if the same device reports the same state twice within 50ms, the second one is dropped. HA can be chatty.
-
-Normalization means mapping HA's entity model to the `DeviceId` and `AttributeKey` model. This is the only place in the system that knows what an HA `entity_id` looks like. Everything above this layer speaks our internal model only.
-
-## Normalization Map
+## Ingest
 
 ```rust
-struct NormalizationMap {
-    entries: HashMap<HAEntityId, (DeviceId, AttributeKey)>,
-}
+pub fn ingest(&mut self, raw: RawDeviceEvent) -> Option<Event>
 ```
 
-This map is configuration — loaded at startup, defines the relationship between HA's world and ours. When we replace HA with native adapters in V2, we replace this map and the raw event format. Nothing else changes.
+Returns `None` if the event is a duplicate or the `external_id` is not in the registry.
+Returns `Some(Event)` with a sequence number assigned ready for WAL append.
+
+## Normalization
+
+Normalization means mapping the adapter's `external_id` to an internal `DeviceId` via the
+device registry. The registry is the single source of truth for this mapping — loaded from
+`devices.toml` at startup.
+
+Attribute names pass through unchanged. The raw event's `attribute` field is used directly
+as the internal `AttributeKey`. This works because `devices.toml` is authored to match the
+attribute names the current adapter (HA) reports.
+
+## Deduplication
+
+If the same device reports the same value within `dedup_window_ms`, the second event is
+dropped. HA can be chatty — this prevents the state engine and WAL from processing
+redundant updates.
+
+The dedup window is configurable via `AdapterConfig.event_dedup_window_ms` in `config.toml`.
+The default is 50ms.
+
+The dedup tracker is keyed by `DeviceId`. This means the last reported value is tracked per
+device regardless of which attribute changed. If two different attributes on the same device
+change within the window, the second may be dropped if its value matches the first's tracked
+value. This is acceptable for V1 where devices typically report one attribute at a time.
+
+## V2 — Attribute Mapping
+
+When HA is replaced with a native adapter, the adapter's attribute names may differ from
+internal `AttributeKey` names. For example, a Zigbee adapter might report `lock_state` for
+an attribute the system calls `state` internally.
+
+The fix is an optional per-device attribute map in `devices.toml`:
+
+```toml
+[devices.attribute_map]
+lock_state = "state"    # adapter attribute name → internal AttributeKey
+```
+
+When absent the ingestor passes attribute names through unchanged — V1 HA behaviour.
+When present the ingestor translates before building the event — native adapter behaviour.
+Nothing above the ingestor changes either way.
+
+Deduplication should also be moved to a per `(DeviceId, AttributeKey)` key in V2 to
+correctly handle devices that report multiple attributes.

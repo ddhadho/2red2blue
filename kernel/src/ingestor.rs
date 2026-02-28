@@ -1,47 +1,60 @@
 use std::collections::HashMap;
-use crate::types::*;
 use tracing::debug;
-
-pub struct NormalizationMap {
-    entries: HashMap<String, (DeviceId, String)>,
-}
-
-impl NormalizationMap {
-    pub fn new() -> Self {
-        let mut entries = HashMap::new();
-        // Hardcoded for walking skeleton — loaded from devices.toml in M3
-        entries.insert(
-            "switch.main_gate".to_string(),
-            (DeviceId("gate_main".to_string()), "state".to_string()),
-        );
-        Self { entries }
-    }
-
-    pub fn normalize(&self, external_id: &str) -> Option<(DeviceId, String)> {
-        self.entries.get(external_id).cloned()
-    }
-}
+use crate::types::*;
+use crate::registry::DeviceRegistry;
 
 pub struct EventIngestor {
-    norm_map: NormalizationMap,
+    registry: std::sync::Arc<DeviceRegistry>,
     sequence: u64,
+    // Dedup: track last event per device
+    last_events: HashMap<DeviceId, (u64, Value)>, // (timestamp, value)
+    dedup_window_ms: u64,
 }
 
 impl EventIngestor {
-    pub fn new() -> Self {
+    pub fn new(
+        registry: std::sync::Arc<DeviceRegistry>,
+        dedup_window_ms: u64,
+    ) -> Self {
         Self {
-            norm_map: NormalizationMap::new(),
+            registry,
             sequence: 0,
+            last_events: HashMap::new(),
+            dedup_window_ms,
         }
     }
 
     pub fn ingest(&mut self, raw: RawDeviceEvent) -> Option<Event> {
-        let (device_id, attribute) = self.norm_map.normalize(&raw.external_id)?;
+        // Resolve external_id to internal DeviceId
+        let device_id = self.registry
+            .resolve_external(&raw.external_id)?
+            .clone();
+
+        // Dedup — drop if same value within dedup window
+        if let Some((last_ts, last_val)) = self.last_events.get(&device_id) {
+            let age_ms = raw.timestamp.saturating_sub(*last_ts);
+            if age_ms < self.dedup_window_ms && last_val == &raw.value {
+                debug!(
+                    device_id = %device_id,
+                    "duplicate event dropped"
+                );
+                return None;
+            }
+        }
+
+        // Update dedup tracker
+        self.last_events.insert(
+            device_id.clone(),
+            (raw.timestamp, raw.value.clone()),
+        );
 
         self.sequence += 1;
 
         let mut payload = HashMap::new();
-        payload.insert("attribute".to_string(), Value::Text(attribute.clone()));
+        payload.insert(
+            "attribute".to_string(),
+            Value::Text(raw.attribute.clone()),
+        );
         payload.insert("value".to_string(), raw.value.clone());
         payload.insert(
             "device_id".to_string(),
@@ -55,10 +68,7 @@ impl EventIngestor {
         );
         event.sequence = self.sequence;
 
-        debug!(
-            sequence = event.sequence,
-            "event ingested"
-        );
+        debug!(sequence = event.sequence, "event ingested");
 
         Some(event)
     }

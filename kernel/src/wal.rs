@@ -1,8 +1,7 @@
 use rusqlite::{Connection, params};
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use crate::types::{Event, EventKind};
 
 // ── Priority ─────────────────────────────────────────────────
@@ -90,7 +89,9 @@ impl Wal {
         let conn = Connection::open(&config.db_path)
             .map_err(|e| WalError::DbError(e.to_string()))?;
 
-        // Enable WAL mode — critical for concurrent reads during writes
+        // WAL mode for concurrent reads during writes.
+        // synchronous=NORMAL for normal events — no per-write fsync.
+        // Critical events get durability via wal_checkpoint(RESTART).
         conn.execute_batch("
             PRAGMA journal_mode=WAL;
             PRAGMA synchronous=NORMAL;
@@ -117,7 +118,7 @@ impl Wal {
                 path        TEXT NOT NULL
             );
 
-            CREATE INDEX IF NOT EXISTS idx_events_sequence 
+            CREATE INDEX IF NOT EXISTS idx_events_sequence
                 ON events(sequence);
         ").map_err(|e| WalError::DbError(e.to_string()))?;
 
@@ -161,16 +162,15 @@ impl Wal {
 
         match priority {
             EventPriority::Critical => {
-                // Flush any pending buffer first
+                // Flush any pending buffer first so sequence order is preserved
                 if !self.buffer.is_empty() {
                     self.flush_buffer()?;
                 }
-                // Write immediately with full sync
+                // Write immediately with full durability guarantee
                 self.write_event_sync(&event)?;
                 debug!(sequence = seq, "critical event written (sync)");
             }
             EventPriority::Normal => {
-                // Estimate serialized size
                 let approx_size = event.id.len()
                     + event.payload.len() * 20
                     + 64;
@@ -178,7 +178,6 @@ impl Wal {
                 self.buffer.push(event);
                 self.buffer_bytes += approx_size;
 
-                // Check flush conditions
                 if self.should_flush() {
                     self.flush_buffer()?;
                 }
@@ -193,7 +192,6 @@ impl Wal {
 
         self.events_since_snapshot += 1;
 
-        // Snapshot if threshold reached
         if self.events_since_snapshot >= self.config.snapshot_interval_events {
             self.maybe_snapshot()?;
         }
@@ -214,13 +212,11 @@ impl Wal {
         if self.buffer_bytes >= self.config.buffer_max_bytes {
             return true;
         }
-
         if let Ok(elapsed) = self.buffer_since.elapsed() {
             if elapsed >= Duration::from_secs(self.config.buffer_max_age_secs) {
                 return true;
             }
         }
-
         false
     }
 
@@ -231,13 +227,12 @@ impl Wal {
 
         let count = self.buffer.len();
 
-        // Batch insert in single transaction
         let tx = self.conn.unchecked_transaction()
             .map_err(|e| WalError::DbError(e.to_string()))?;
 
         {
             let mut stmt = tx.prepare_cached("
-                INSERT INTO events 
+                INSERT INTO events
                     (sequence, id, timestamp, source, kind, payload, priority)
                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             ").map_err(|e| WalError::DbError(e.to_string()))?;
@@ -271,7 +266,7 @@ impl Wal {
 
     fn write_event_sync(&mut self, event: &Event) -> Result<(), WalError> {
         self.conn.execute(
-            "INSERT INTO events 
+            "INSERT INTO events
                 (sequence, id, timestamp, source, kind, payload, priority)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
@@ -288,8 +283,12 @@ impl Wal {
             ],
         ).map_err(|e| WalError::DbError(e.to_string()))?;
 
-        // Force sync for critical events
-        self.conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);")
+        // RESTART blocks until all WAL frames are written to the main database
+        // file and the OS has flushed to disk. This is the hard durability
+        // guarantee for critical events — a power cut after this returns cannot
+        // lose the event. PASSIVE was incorrect: it does not wait for readers
+        // and does not guarantee the write has reached disk.
+        self.conn.execute_batch("PRAGMA wal_checkpoint(RESTART);")
             .map_err(|e| WalError::DbError(e.to_string()))?;
 
         Ok(())
@@ -299,9 +298,9 @@ impl Wal {
 
     pub fn replay_from(&self, sequence: u64) -> Result<Vec<Event>, WalError> {
         let mut stmt = self.conn.prepare(
-            "SELECT sequence, id, timestamp, source, kind, payload 
-             FROM events 
-             WHERE sequence >= ?1 
+            "SELECT sequence, id, timestamp, source, kind, payload
+             FROM events
+             WHERE sequence >= ?1
              ORDER BY sequence ASC"
         ).map_err(|e| WalError::DbError(e.to_string()))?;
 
@@ -342,9 +341,8 @@ impl Wal {
             sequence
         );
 
-        // Record snapshot in DB
         self.conn.execute(
-            "INSERT INTO snapshots (sequence, created_at, path) 
+            "INSERT INTO snapshots (sequence, created_at, path)
              VALUES (?1, ?2, ?3)",
             params![
                 sequence as i64,
@@ -360,11 +358,11 @@ impl Wal {
 
         info!(sequence = sequence, path = %path, "snapshot recorded");
 
-        // Clean old snapshots — keep last 2
+        // Keep last 2 snapshots — prune older ones
         self.conn.execute(
             "DELETE FROM snapshots WHERE id NOT IN (
-                SELECT id FROM snapshots 
-                ORDER BY sequence DESC 
+                SELECT id FROM snapshots
+                ORDER BY sequence DESC
                 LIMIT 2
             )",
             [],
