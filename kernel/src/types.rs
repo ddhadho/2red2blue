@@ -184,6 +184,12 @@ pub struct DeviceState {
     /// Never overwritten by assumptions or safe defaults.
     pub actual: HashMap<AttributeKey, Value>,
 
+    /// The value each attribute held immediately before the most recent
+    /// update_actual call. One value deep — not a history.
+    /// Used by the WasPreviously operator in the rule engine.
+    /// Never touched by confidence decay or safe defaults.
+    pub previous: HashMap<AttributeKey, Value>,
+
     pub confidence: Confidence,
 
     /// When we last heard from this device.
@@ -200,17 +206,22 @@ impl DeviceState {
             device_id,
             desired: HashMap::new(),
             actual: HashMap::new(),
+            previous: HashMap::new(),
             confidence,
-            last_seen: SystemTime::UNIX_EPOCH,  // never seen
+            last_seen: SystemTime::UNIX_EPOCH,
             desired_set_at: SystemTime::now(),
             desired_set_by: EventSource::System,
         }
     }
 
     /// Update actual state from a genuine device report.
+    /// Moves current actual value to previous before overwriting.
     /// Resets confidence to 1.0 and updates last_seen.
-    /// Takes now as a parameter for testability.
     pub fn update_actual(&mut self, attribute: AttributeKey, value: Value, now: SystemTime) {
+        // Move current actual to previous before overwriting
+        if let Some(current) = self.actual.get(&attribute) {
+            self.previous.insert(attribute.clone(), current.clone());
+        }
         self.actual.insert(attribute, value);
         self.confidence.value = 1.0;
         self.last_seen = now;

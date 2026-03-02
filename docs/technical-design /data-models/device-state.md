@@ -14,6 +14,10 @@ struct DeviceState {
     // what the device last told us it is — never overwritten by assumptions
     actual: HashMap<AttributeKey, Value>,
 
+    // what the device reported before the current actual — one value deep
+    // populated by update_actual before overwriting actual
+    previous: HashMap<AttributeKey, Value>,
+
     // how much we trust actual reflects reality right now
     confidence: Confidence,
 
@@ -52,6 +56,32 @@ Two thresholds drive downstream behaviour:
 Each device has its own `decays_after` configured in `devices.toml`. A gate needs fresh state
 within 30 seconds. A water tank can tolerate 5 minutes of silence.
 
+## Previous Value
+
+`previous` holds the value each attribute had immediately before the most recent `update_actual`
+call. It is one value deep — not a history. It exists to support the `WasPreviously` operator
+in the rule engine.
+
+`update_actual` populates `previous` before overwriting `actual`:
+
+```rust
+pub fn update_actual(&mut self, attribute: AttributeKey, value: Value, now: SystemTime) {
+    // Move current actual to previous before overwriting
+    if let Some(current) = self.actual.get(&attribute) {
+        self.previous.insert(attribute.clone(), current.clone());
+    }
+    self.actual.insert(attribute, value);
+    self.confidence.value = 1.0;
+    self.last_seen = now;
+}
+```
+
+If an attribute has never been reported, `previous` has no entry for it. The rule engine
+must handle this — `WasPreviously` on an attribute with no previous value returns false.
+
+`previous` is never touched by confidence decay or safe defaults. It is a record of fact,
+same as `actual`.
+
 ## Reading Device State — `get_effective`
 
 `actual` is a record of fact. It holds the last value the device genuinely reported and is
@@ -63,8 +93,8 @@ awareness at the point of use:
 
 ```rust
 impl DeviceState {
-    pub fn get_effective(&self, attr: &AttributeKey) -> Option<&Value> {
-        if self.confidence.value <= UNKNOWN_THRESHOLD {
+    pub fn get_effective(&self, attr: &AttributeKey, unknown_threshold: f32) -> Option<&Value> {
+        if self.confidence.value <= unknown_threshold {
             self.confidence.safe_default.get(attr)
         } else {
             self.actual.get(attr)
