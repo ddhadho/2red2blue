@@ -30,4 +30,12 @@ cargo run --bin daemon -- config.toml
 
 Active development. Durable WAL. Rule engine working. Conflict resolver and real adapter next.
 
+✓ Durable WAL
+✓ State engine with confidence decay
+✓ Rule engine with power recovery
+→ Conflict resolver and command dispatcher
+→ Home Assistant adapter
+→ Boot reconciliation
+→ UI
+
 [View Documentation](./docs)
