@@ -9,3 +9,5 @@ pub mod dispatcher;
 pub mod registry;
 pub mod rule_types;
 pub mod rule_loader;
+pub mod command_store;
+pub mod shared_state;

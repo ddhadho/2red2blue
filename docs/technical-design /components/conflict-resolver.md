@@ -1,34 +1,65 @@
-# Takes a batch of candidate commands, applies priority rules, returns resolved commands.
+# Conflict Resolver
 
-## Trait and Struct Definitions
+Takes a batch of candidate commands from the rule engine, applies the priority model, and
+returns winners and losers. Stateless — no side effects, no WAL writes, no shared state.
+All orchestration happens in main.
+
+## Struct Definition
 
 ```rust
-trait ConflictResolver {
-    fn resolve(&self, candidates: Vec<Command>) -> ResolvedCommands;
+pub struct ConflictResolver;
+
+pub struct ResolvedCommands {
+    pub winners: Vec<Command>,
+    pub losers: Vec<ConflictRecord>,
 }
 
-struct ResolvedCommands {
-    winners: Vec<Command>,
-    losers: Vec<ConflictRecord>,
+pub struct ConflictRecord {
+    pub winner_command: Command,
+    pub loser_command: Command,
+    pub winner_rule_id: RuleId,
+    pub loser_rule_id: RuleId,
+    pub device_id: DeviceId,
+    pub attribute: AttributeKey,
+    pub reason: ConflictReason,
 }
 
-struct ConflictRecord {
-    command: Command,
-    lost_to: RuleId,
-    reason: String,
+pub enum ConflictReason {
+    LowerPriority,
+    PriorityTie,   // tie broken by rule ordering — loser still recorded
 }
 ```
 
 ## Resolution Algorithm
 
-1.  Group commands by (`DeviceId`, `AttributeKey`) — same device same attribute is a conflict.
-2.  For each conflict group:
-    a.  Sort by rule priority descending.
-    b.  Winner is highest priority.
-    c.  If tie → most recently modified rule wins.
-    d.  All losers recorded in `ConflictRecord`.
-3.  Return winners + all loser records.
+1. Group commands by `(DeviceId, AttributeKey)` — same device, same attribute is a conflict.
+2. For each group with more than one command:
+   a. Sort by rule priority descending (`Command::rule_id` → look up in priority map).
+   b. Winner is highest priority.
+   c. Tie → first in sort order wins (deterministic — rule ordering in rules.toml is tiebreak).
+   d. All non-winners recorded as `ConflictRecord`.
+3. Groups with only one command pass through unconflicted.
+4. Return `ResolvedCommands { winners, losers }`.
 
-## Conflict Logging and Visibility
+## Priority Map
 
-Loser records are written to WAL as `EventKind::RuleConflict`. The UI surfaces these so you can see when rules are fighting and tune priorities. This is operationally important — without visibility into conflicts your rules become a black box.
+The resolver takes a `&HashMap<RuleId, u8>` priority map built by main from the loaded
+ruleset. Commands from the rule engine tick (delayed actions, timeouts) carry the originating
+`rule_id` so priorities are resolved consistently regardless of when the command was produced.
+
+Commands with no `rule_id` (manual or system commands) are treated as priority 0 — they lose
+to any rule-driven command.
+
+## What Main Does With Losers
+
+Main receives `ResolvedCommands`. For each loser:
+- Appends a `EventKind::RuleConflict` event to the WAL
+- Pushes the `ConflictRecord` into `SharedState::conflicts`
+
+The resolver never touches the WAL or shared state directly.
+
+## Conflict Visibility
+
+Conflicts are surfaced at `GET /conflicts` on the UI server. When two rules fight over the
+same device, the operator sees it and can tune priorities. Without this visibility, rules
+become a black box.

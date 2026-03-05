@@ -12,6 +12,8 @@ use kernel::rules::RuleEngine;
 use kernel::rule_loader::load_rules;
 use kernel::resolver::ConflictResolver;
 use kernel::dispatcher::CommandDispatcher;
+use kernel::shared_state::{SharedState, new_shared};
+use kernel::types::{AdapterCommand, Command, Event, EventKind, EventSource, RawDeviceEvent, Value};
 use adapters::mock::MockAdapter;
 use adapters::traits::DeviceAdapter;
 
@@ -75,41 +77,58 @@ async fn main() -> anyhow::Result<()> {
         config.adapter.event_dedup_window_ms,
     );
 
-    // Load rules — validated against registry. Invalid rules are logged
-    // and skipped; daemon does not abort on bad rules.
-    let loaded_rules = load_rules(&config.storage.rules_path, &registry)
+    let rules_path = config.storage.rules_path.clone();
+    let loaded_rules = load_rules(&rules_path, &registry)
         .context("Failed to load rules")?;
 
     let mut rule_engine = RuleEngine::new();
     rule_engine.load_rules(loaded_rules);
 
     let resolver = ConflictResolver::new();
-    let dispatcher = CommandDispatcher::new();
 
-    let shared_state = Arc::new(Mutex::new(HashMap::new()));
+    let mut dispatcher = CommandDispatcher::new(
+        config.dispatcher.max_retries,
+        config.dispatcher.command_timeout_seconds * 1000,
+    );
 
-    let ui_state = shared_state.clone();
+    let shared = new_shared();
+
+    let ui_shared = shared.clone();
     let ui_port = config.ui.port;
     tokio::spawn(async move {
-        ui::start(ui_port, ui_state).await;
+        ui::start(ui_port, ui_shared).await;
     });
 
-    let mut adapter = MockAdapter::new();
-    adapter.connect().await?;
+    // raw_tx carries RawDeviceEvent from the adapter task into the main loop.
+    // send_command in the mock adapter emits a CommandConfirmed RawDeviceEvent
+    // back through the same channel so the main loop can route it to the
+    // dispatcher before handing anything to the ingestor.
+    let (raw_tx, mut raw_rx) = tokio::sync::mpsc::channel::<RawDeviceEvent>(64);
+    let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::channel::<AdapterCommand>(32);
 
-    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(32);
+    let mut adapter = MockAdapter::new(raw_tx.clone());
+    adapter.connect().await?;
 
     tokio::spawn(async move {
         loop {
-            match adapter.next_event().await {
-                Ok(event) => {
-                    if event_tx.send(event).await.is_err() {
-                        break;
+            tokio::select! {
+                result = adapter.next_event() => {
+                    match result {
+                        Ok(raw) => {
+                            if raw_tx.send(raw).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "adapter error");
+                            break;
+                        }
                     }
                 }
-                Err(e) => {
-                    tracing::error!(error = %e, "adapter error");
-                    break;
+                Some(cmd) = cmd_rx.recv() => {
+                    if let Err(e) = adapter.send_command(cmd).await {
+                        tracing::error!(error = %e, "adapter send_command failed");
+                    }
                 }
             }
         }
@@ -125,21 +144,37 @@ async fn main() -> anyhow::Result<()> {
         tokio::time::MissedTickBehavior::Skip
     );
 
-    // SIGUSR1 listener created once before the loop — signals arriving while
-    // the loop processes other branches are queued, not dropped.
     let mut sigusr1 = tokio::signal::unix::signal(
         tokio::signal::unix::SignalKind::user_defined1()
     ).context("Failed to register SIGUSR1 handler")?;
-
-    let rules_path = config.storage.rules_path.clone();
 
     info!("smarthome daemon ready — entering event loop");
 
     loop {
         tokio::select! {
-            Some(raw_event) = event_rx.recv() => {
+            Some(raw_event) = raw_rx.recv() => {
+                // CommandConfirmed events come back through the raw channel
+                // from the adapter's send_command. Check external_id on the
+                // raw event before passing anything to the ingestor.
+                if raw_event.external_id == "system.command_confirmed" {
+                    if let Value::Text(command_id) = &raw_event.value {
+                        if let Some(confirmed) = dispatcher.confirm(&command_id) {
+                            info!(
+                                command_id = %confirmed.id,
+                                device_id = %confirmed.device_id,
+                                "command confirmed"
+                            );
+                            let mut s = shared.lock().unwrap();
+                            s.pending_commands.retain(|c| c.id != confirmed.id);
+                        }
+                    }
+                    // Don't process as a state event
+                    continue;
+                }
+
                 if let Some(event) = ingestor.ingest(raw_event) {
                     let now = SystemTime::now();
+                    let _now_ms = to_ms(now);
                     let priority = EventPriority::for_kind(&event.kind);
 
                     wal.append(event.clone(), priority)
@@ -153,23 +188,26 @@ async fn main() -> anyhow::Result<()> {
                         now,
                     );
 
-                    // Collect any in-flight entries that expired during
-                    // event processing
-                    candidates.extend(
-                        rule_engine.tick(now, state_engine.get_all())
-                    );
+                    candidates.extend(rule_engine.tick(now, state_engine.get_all()));
 
-                    let resolved = resolver.resolve(candidates);
-                    for command in &resolved {
-                        dispatcher.dispatch(command);
-                    }
+                    dispatch_resolved(
+                        candidates,
+                        &resolver,
+                        &mut dispatcher,
+                        &cmd_tx,
+                        &mut wal,
+                        &shared,
+                    ).await?;
 
-                    let mut state_map = shared_state.lock().unwrap();
-                    *state_map = state_engine.get_all().clone();
+                    let mut s = shared.lock().unwrap();
+                    s.devices = state_engine.get_all().clone();
+                    s.pending_commands = dispatcher.all_commands()
+                        .into_iter().cloned().collect();
 
                     info!(
                         wal_sequence = wal.len(),
-                        devices = state_map.len(),
+                        devices = s.devices.len(),
+                        pending = s.pending_commands.len(),
                         "event processed"
                     );
                 }
@@ -177,27 +215,64 @@ async fn main() -> anyhow::Result<()> {
 
             _ = tick_interval.tick() => {
                 let now = SystemTime::now();
+                let now_ms = to_ms(now);
 
                 let degraded = state_engine.tick(now);
                 if !degraded.is_empty() {
-                    tracing::warn!(
-                        devices = ?degraded,
-                        "devices confidence degraded"
-                    );
+                    tracing::warn!(devices = ?degraded, "devices confidence degraded");
                 }
 
-                // Fire expired in-flight entries — delayed actions and timeouts.
-                // Runs every second even during silence, which is when timeouts fire.
                 let timer_commands = rule_engine.tick(now, state_engine.get_all());
                 if !timer_commands.is_empty() {
-                    let resolved = resolver.resolve(timer_commands);
-                    for command in &resolved {
-                        dispatcher.dispatch(command);
-                    }
+                    dispatch_resolved(
+                        timer_commands,
+                        &resolver,
+                        &mut dispatcher,
+                        &cmd_tx,
+                        &mut wal,
+                        &shared,
+                    ).await?;
                 }
 
-                let mut state_map = shared_state.lock().unwrap();
-                *state_map = state_engine.get_all().clone();
+                dispatcher.tick(now_ms);
+
+                // Resend retried commands
+                for cmd in dispatcher.drain_pending() {
+                    send_to_adapter(&cmd, &cmd_tx, &mut dispatcher);
+                }
+
+                // Handle permanently failed commands — log, WAL, surface in UI.
+                // Confidence is NOT zeroed — write failure ≠ stale state.
+                for failed in dispatcher.drain_failed() {
+                    tracing::error!(
+                        command_id = %failed.id,
+                        device_id = %failed.device_id,
+                        attribute = %failed.attribute,
+                        "command permanently failed — not zeroing confidence"
+                    );
+
+                    let mut payload = HashMap::new();
+                    payload.insert(
+                        "command_id".to_string(),
+                        Value::Text(failed.id.clone()),
+                    );
+                    payload.insert(
+                        "device_id".to_string(),
+                        Value::Text(failed.device_id.0.clone()),
+                    );
+                    let event = Event::new(
+                        EventSource::System,
+                        EventKind::CommandFailed,
+                        payload,
+                    );
+                    wal.append(event, EventPriority::Normal)
+                        .context("WAL append failed for CommandFailed")?;
+                }
+
+                let mut s = shared.lock().unwrap();
+                s.devices = state_engine.get_all().clone();
+                s.pending_commands = dispatcher.all_commands()
+                    .into_iter().cloned().collect();
             }
 
             _ = sigusr1.recv() => {
@@ -231,4 +306,95 @@ async fn main() -> anyhow::Result<()> {
     wal.flush().context("WAL flush failed")?;
     info!("smarthome daemon stopped cleanly");
     Ok(())
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+
+async fn dispatch_resolved(
+    candidates: Vec<Command>,
+    resolver: &ConflictResolver,
+    dispatcher: &mut CommandDispatcher,
+    cmd_tx: &tokio::sync::mpsc::Sender<AdapterCommand>,
+    wal: &mut Wal,
+    shared: &Arc<Mutex<SharedState>>,
+) -> anyhow::Result<()> {
+    if candidates.is_empty() {
+        return Ok(());
+    }
+
+    let resolved = resolver.resolve(candidates);
+
+    for conflict in &resolved.conflicts {
+        let mut payload = HashMap::new();
+        payload.insert(
+            "winning_rule".to_string(),
+            Value::Text(
+                conflict.winning_rule.as_ref()
+                    .map(|r| r.0.clone())
+                    .unwrap_or_default()
+            ),
+        );
+        payload.insert(
+            "losing_rule".to_string(),
+            Value::Text(
+                conflict.losing_rule.as_ref()
+                    .map(|r| r.0.clone())
+                    .unwrap_or_default()
+            ),
+        );
+        payload.insert(
+            "device_id".to_string(),
+            Value::Text(conflict.device_id.0.clone()),
+        );
+        payload.insert(
+            "attribute".to_string(),
+            Value::Text(conflict.attribute.0.clone()),
+        );
+
+        let event = Event::new(EventSource::System, EventKind::RuleConflict, payload);
+        wal.append(event, EventPriority::Normal)
+            .context("WAL append failed for conflict record")?;
+
+        shared.lock().unwrap().conflicts.push(conflict.clone());
+    }
+
+    for command in resolved.winners {
+        dispatcher.enqueue(command.clone());
+        send_to_adapter(&command, cmd_tx, dispatcher);
+    }
+
+    Ok(())
+}
+
+fn send_to_adapter(
+    command: &Command,
+    cmd_tx: &tokio::sync::mpsc::Sender<AdapterCommand>,
+    dispatcher: &mut CommandDispatcher,
+) {
+    let adapter_cmd = AdapterCommand {
+        external_id: command.device_id.0.clone(),
+        attribute: command.attribute.0.clone(),
+        value: command.value.clone(),
+        command_id: command.id.clone(),
+    };
+
+    match cmd_tx.try_send(adapter_cmd) {
+        Ok(_) => {
+            dispatcher.mark_sent(&command.id);
+        }
+        Err(e) => {
+            tracing::error!(
+                command_id = %command.id,
+                device_id = %command.device_id,
+                error = %e,
+                "failed to send command to adapter"
+            );
+        }
+    }
+}
+
+fn to_ms(t: SystemTime) -> u64 {
+    t.duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }

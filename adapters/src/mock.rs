@@ -1,16 +1,24 @@
 use async_trait::async_trait;
 use kernel::types::{RawDeviceEvent, AdapterCommand, Value};
+use tokio::sync::mpsc;
 use tracing::info;
 use crate::traits::{AdapterError, DeviceAdapter};
 
 pub struct MockAdapter {
     connected: bool,
     tick: u64,
+    /// Channel back to main — used to inject synthetic events like
+    /// CommandConfirmed. Real adapters emit these via next_event instead.
+    event_tx: mpsc::Sender<RawDeviceEvent>,
 }
 
 impl MockAdapter {
-    pub fn new() -> Self {
-        Self { connected: false, tick: 0 }
+    pub fn new(event_tx: mpsc::Sender<RawDeviceEvent>) -> Self {
+        Self {
+            connected: false,
+            tick: 0,
+            event_tx,
+        }
     }
 }
 
@@ -114,6 +122,11 @@ impl DeviceAdapter for MockAdapter {
         Ok(event)
     }
 
+    // Trait contract: fire and forget, Result<(), AdapterError>.
+    // Real adapters send the command to HA and return — confirmation
+    // arrives later via next_event as a state change.
+    // Mock confirms immediately by injecting a synthetic event through
+    // event_tx, which main routes to dispatcher.confirm().
     async fn send_command(
         &mut self,
         command: AdapterCommand,
@@ -123,8 +136,24 @@ impl DeviceAdapter for MockAdapter {
             attribute = %command.attribute,
             value = ?command.value,
             command_id = %command.command_id,
-            "mock adapter received command"
+            "mock adapter received command — confirming immediately"
         );
+
+        let confirmation = RawDeviceEvent {
+            external_id: "system.command_confirmed".to_string(),
+            attribute: "command_id".to_string(),
+            value: Value::Text(command.command_id.clone()),
+            timestamp: now_ms(),
+            raw: serde_json::json!({
+                "command_id": command.command_id,
+                "external_id": command.external_id,
+            }),
+        };
+
+        // Best-effort — if main has shut down and the channel is closed,
+        // silently drop rather than propagating an error
+        self.event_tx.send(confirmation).await.ok();
+
         Ok(())
     }
 }

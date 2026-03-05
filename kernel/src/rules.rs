@@ -134,7 +134,14 @@ impl RuleEngine {
         let now_ms = to_ms(now);
         let mut commands = vec![];
 
+        // Build priority map before mutably borrowing rule_states
+        let priority_map: HashMap<String, u8> = self.rules
+            .iter()
+            .map(|r| (r.id.0.clone(), r.priority))
+            .collect();
+
         for rule_state in self.rule_states.values_mut() {
+            let priority = priority_map.get(&rule_state.rule_id).copied().unwrap_or(0);
             let mut fired_indices = vec![];
 
             for (idx, entry) in rule_state.in_flight.iter().enumerate() {
@@ -151,6 +158,7 @@ impl RuleEngine {
                             AttributeKey(action.attribute.clone()),
                             action.value.clone(),
                             Some(RuleId(rule_state.rule_id.clone())),
+                            priority,
                         ));
                     }
                 }
@@ -273,6 +281,7 @@ impl RuleEngine {
                         action.attribute.clone(),
                         action.value.clone(),
                         Some(rule.id.clone()),
+                        rule.priority,
                     ));
                 }
             }

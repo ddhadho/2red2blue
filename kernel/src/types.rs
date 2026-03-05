@@ -76,7 +76,7 @@ impl Event {
     ) -> Self {
         Self {
             id: Ulid::new().to_string(),
-            sequence: 0,      // assigned by WAL on append
+            sequence: 0,
             timestamp: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
@@ -218,7 +218,6 @@ impl DeviceState {
     /// Moves current actual value to previous before overwriting.
     /// Resets confidence to 1.0 and updates last_seen.
     pub fn update_actual(&mut self, attribute: AttributeKey, value: Value, now: SystemTime) {
-        // Move current actual to previous before overwriting
         if let Some(current) = self.actual.get(&attribute) {
             self.previous.insert(attribute.clone(), current.clone());
         }
@@ -241,6 +240,14 @@ impl DeviceState {
         } else {
             self.actual.get(attr)
         }
+    }
+
+    /// Zero confidence immediately — called by main when a command fails
+    /// after max retries. Bypasses normal decay. get_effective switches to
+    /// safe defaults on next read. Any IsUnknown rule on this device fires
+    /// on next state update.
+    pub fn zero_confidence(&mut self) {
+        self.confidence.value = 0.0;
     }
 }
 
@@ -273,6 +280,9 @@ pub struct StateMismatch {
 pub struct Command {
     pub id: String,              // ULID
     pub rule_id: Option<RuleId>,
+    /// Priority stamped at production time by the rule engine.
+    /// Used by conflict resolver — higher wins. 0 = lowest, 255 = highest.
+    pub priority: u8,
     pub device_id: DeviceId,
     pub attribute: AttributeKey,
     pub value: Value,
@@ -287,10 +297,12 @@ impl Command {
         attribute: AttributeKey,
         value: Value,
         rule_id: Option<RuleId>,
+        priority: u8,
     ) -> Self {
         Self {
             id: Ulid::new().to_string(),
             rule_id,
+            priority,
             device_id,
             attribute,
             value,

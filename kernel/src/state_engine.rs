@@ -141,6 +141,23 @@ impl StateEngine {
         degraded
     }
 
+    // ── Zero confidence ──────────────────────────────────────
+    //
+    // Called by main when a command fails after max retries.
+    // Bypasses normal decay — sets confidence to 0.0 immediately.
+    // get_effective switches to safe defaults on next read.
+    // Any IsUnknown rule on this device fires on next state update.
+
+    pub fn zero_confidence(&mut self, device_id: &DeviceId) {
+        if let Some(state) = self.devices.get_mut(device_id) {
+            state.zero_confidence();
+            warn!(
+                device_id = %device_id,
+                "confidence zeroed — command failed after max retries"
+            );
+        }
+    }
+
     // ── Desired state ────────────────────────────────────────
 
     pub fn set_desired(
