@@ -83,7 +83,7 @@ actions = [
 
 Additional rule examples can be found in:
 
-docs/technical-design/rule-dsl/examples/
+[`docs/technical-design/rule-dsl/examles`](./docs/technical-design/rule-dsl/examples)
 
 ---
 
