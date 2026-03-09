@@ -48,6 +48,19 @@ device regardless of which attribute changed. If two different attributes on the
 change within the window, the second may be dropped if its value matches the first's tracked
 value. This is acceptable for V1 where devices typically report one attribute at a time.
 
+## System events and confirmations
+
+The ingestor only handles device state reports. It resolves `external_id` against the
+registry — any event whose `external_id` is not a registered device is dropped.
+
+This means system events like command confirmations must never be routed through the
+ingestor. They travel through a dedicated channel (`confirm_tx`) from the adapter directly
+to main, which calls `dispatcher.confirm(command_id)` on receipt.
+
+The ingestor has no knowledge of commands, confirmations, or system event kinds. That
+boundary is intentional — keeping the ingestor focused on device observations makes it
+simpler and prevents system events from accidentally being treated as state changes.
+
 ## V2 — Attribute Mapping
 
 When HA is replaced with a native adapter, the adapter's attribute names may differ from
