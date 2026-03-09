@@ -96,6 +96,12 @@ async fn main() -> anyhow::Result<()> {
     info!(devices = desired_store.get_all().len(), "desired state loaded");
 
     // Step 2 — WAL replay
+    // NOTE: replays from sequence 0 — full history on every boot.
+    // This is correct but slow as the WAL grows. The fix is to write a
+    // state snapshot alongside maybe_snapshot() and replay only the delta.
+    // That fix requires the snapshot write and sequence advance to be atomic.
+    // Tracked for post-pilot implementation. Do not change replay_from(0)
+    // until the state snapshot store is implemented and tested together.
     let replay_events = wal.replay_from(0)
         .context("WAL replay failed")?;
 
