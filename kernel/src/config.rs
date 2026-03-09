@@ -24,6 +24,7 @@ pub struct StorageConfig {
     pub snapshot_path: String,
     pub rules_path: String,
     pub devices_path: String,
+    pub desired_state_path: String,
     pub max_wal_size_mb: u64,
     pub snapshot_interval_events: u64,
 }
@@ -38,7 +39,9 @@ pub struct AdapterConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ReconcilerConfig {
-    pub boot_poll_timeout_seconds: u64,
+    /// Seconds to wait after WAL replay for devices to report before
+    /// boot reconciliation diffs desired vs actual.
+    pub boot_window_secs: u64,
     pub continuous_poll_interval_seconds: u64,
     pub confidence_degraded_threshold: f32,
     pub confidence_unknown_threshold: f32,
@@ -46,7 +49,8 @@ pub struct ReconcilerConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct DispatcherConfig {
-    pub command_timeout_seconds: u64,
+    /// Milliseconds to wait for command confirmation before retry.
+    pub timeout_ms: u64,
     pub max_retries: u8,
     pub retry_delay_ms: u64,
 }
@@ -70,10 +74,10 @@ impl Config {
     pub fn load(path: &str) -> Result<Self, ConfigError> {
         let contents = std::fs::read_to_string(path)
             .map_err(|e| ConfigError::ReadFailed(path.to_string(), e.to_string()))?;
-        
+
         let config: Config = toml::from_str(&contents)
             .map_err(|e| ConfigError::ParseFailed(e.to_string()))?;
-        
+
         config.validate()?;
         Ok(config)
     }
@@ -118,10 +122,10 @@ impl Config {
 pub enum ConfigError {
     #[error("Failed to read config file '{0}': {1}")]
     ReadFailed(String, String),
-    
+
     #[error("Failed to parse config: {0}")]
     ParseFailed(String),
-    
+
     #[error("Invalid value for '{0}': '{1}'")]
     InvalidValue(String, String),
 }

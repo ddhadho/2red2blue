@@ -21,8 +21,18 @@ pub async fn start(port: u16, state: UiState) {
             let _ = socket.read(&mut buf).await;
             let request = String::from_utf8_lossy(&buf);
 
-            let response = if request.starts_with("GET /state") {
-                // Clone under lock — release before serializing
+            let response = if request.starts_with("GET /reconciliation") {
+                let report = {
+                    let s = state.lock().unwrap();
+                    s.last_reconciliation.clone()
+                };
+                let body = match report {
+                    Some(r) => serde_json::to_string_pretty(&r).unwrap_or_default(),
+                    None => r#"{"status":"not_yet_reconciled"}"#.to_string(),
+                };
+                http_200(body)
+
+            } else if request.starts_with("GET /state") {
                 let devices = {
                     let s = state.lock().unwrap();
                     s.devices.clone()
@@ -47,7 +57,8 @@ pub async fn start(port: u16, state: UiState) {
                 http_200(body)
 
             } else {
-                let body = r#"{"routes":["/state","/conflicts","/commands"]}"#.to_string();
+                let body = r#"{"routes":["/state","/conflicts","/commands","/reconciliation"]}"#
+                    .to_string();
                 http_200(body)
             };
 

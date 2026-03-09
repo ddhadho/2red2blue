@@ -8,6 +8,7 @@ wal_path = "/tmp/smarthome/wal"
 snapshot_path = "/tmp/smarthome/snapshots"
 rules_path = "/tmp/smarthome/rules.toml"
 devices_path = "/tmp/smarthome/devices.toml"
+desired_state_path = "/tmp/smarthome/desired_state.json"
 max_wal_size_mb = 512
 snapshot_interval_events = 1000
 
@@ -18,13 +19,16 @@ reconnect_interval_seconds = 5
 event_dedup_window_ms = 50
 
 [reconciler]
-boot_poll_timeout_seconds = 30
+# Seconds to wait after WAL replay for devices to report actual state
+# before boot reconciliation diffs desired vs actual.
+boot_window_secs = 30
 continuous_poll_interval_seconds = 60
 confidence_degraded_threshold = 0.5
 confidence_unknown_threshold = 0.2
 
 [dispatcher]
-command_timeout_seconds = 5
+# Milliseconds to wait for command confirmation before retry
+timeout_ms = 5000
 max_retries = 3
 retry_delay_ms = 500
 

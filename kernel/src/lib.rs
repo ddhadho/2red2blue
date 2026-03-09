@@ -11,3 +11,5 @@ pub mod rule_types;
 pub mod rule_loader;
 pub mod command_store;
 pub mod shared_state;
+pub mod desired_state_store;
+pub mod reconciler;

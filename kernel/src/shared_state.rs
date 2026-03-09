@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use crate::types::{DeviceId, DeviceState, Command};
 use crate::resolver::ConflictRecord;
+use crate::reconciler::ReconciliationReport;
 
 // ── SharedState ──────────────────────────────────────────────
 //
@@ -21,6 +22,11 @@ pub struct SharedState {
 
     /// Commands currently tracked by the dispatcher — in-flight or pending
     pub pending_commands: Vec<Command>,
+
+    /// Report from the most recent boot reconciliation.
+    /// None until the first reconciliation completes.
+    /// UI returns {"status":"not_yet_reconciled"} when None.
+    pub last_reconciliation: Option<ReconciliationReport>,
 }
 
 impl SharedState {
