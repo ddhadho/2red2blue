@@ -7,17 +7,17 @@ use crate::traits::{AdapterError, DeviceAdapter};
 pub struct MockAdapter {
     connected: bool,
     tick: u64,
-    /// Channel back to main — used to inject synthetic events like
-    /// CommandConfirmed. Real adapters emit these via next_event instead.
-    event_tx: mpsc::Sender<RawDeviceEvent>,
+    // Confirmation channel — sends command_id strings directly to main,
+    // bypassing the ingestor. Ingestor only handles device state reports.
+    confirm_tx: mpsc::Sender<String>,
 }
 
 impl MockAdapter {
-    pub fn new(event_tx: mpsc::Sender<RawDeviceEvent>) -> Self {
+    pub fn new(confirm_tx: mpsc::Sender<String>) -> Self {
         Self {
             connected: false,
             tick: 0,
-            event_tx,
+            confirm_tx,
         }
     }
 }
@@ -122,11 +122,9 @@ impl DeviceAdapter for MockAdapter {
         Ok(event)
     }
 
-    // Trait contract: fire and forget, Result<(), AdapterError>.
-    // Real adapters send the command to HA and return — confirmation
-    // arrives later via next_event as a state change.
-    // Mock confirms immediately by injecting a synthetic event through
-    // event_tx, which main routes to dispatcher.confirm().
+    // Trait contract: fire and forget, returns Ok(()).
+    // Confirmation bypasses the ingestor — sent directly as a command_id
+    // string through confirm_tx. Main calls dispatcher.confirm() on receipt.
     async fn send_command(
         &mut self,
         command: AdapterCommand,
@@ -139,20 +137,9 @@ impl DeviceAdapter for MockAdapter {
             "mock adapter received command — confirming immediately"
         );
 
-        let confirmation = RawDeviceEvent {
-            external_id: "system.command_confirmed".to_string(),
-            attribute: "command_id".to_string(),
-            value: Value::Text(command.command_id.clone()),
-            timestamp: now_ms(),
-            raw: serde_json::json!({
-                "command_id": command.command_id,
-                "external_id": command.external_id,
-            }),
-        };
-
-        // Best-effort — if main has shut down and the channel is closed,
-        // silently drop rather than propagating an error
-        self.event_tx.send(confirmation).await.ok();
+        // Best-effort — if channel is full or closed, drop the confirmation.
+        // Dispatcher will retry after timeout.
+        self.confirm_tx.try_send(command.command_id).ok();
 
         Ok(())
     }

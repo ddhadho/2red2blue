@@ -37,17 +37,17 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "config.toml".to_string());
 
     let config = Config::load(&config_path)
-        .with_context(|| format!("Failed to load config from '{}'", config_path))?;
+        .with_context(|| format!("failed to load config from '{}'", config_path))?;
 
     info!(
-        adapter = %config.adapter.kind,
+        adapter  = %config.adapter.kind,
         platform = %config.platform.kind,
-        ui_port = config.ui.port,
+        ui_port  = config.ui.port,
         "configuration loaded"
     );
 
     let registry = DeviceRegistry::load(&config.storage.devices_path)
-        .context("Failed to load device registry")?;
+        .context("failed to load device registry")?;
 
     let wal_config = match config.platform.kind.as_str() {
         "openwrt" => WalConfig::for_openwrt(
@@ -61,12 +61,9 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let mut wal = Wal::open(wal_config)
-        .context("Failed to open WAL")?;
+        .context("failed to open WAL")?;
 
-    info!(
-        sequence = wal.latest_sequence(),
-        "WAL opened — sequence continues from here"
-    );
+    info!(sequence = wal.latest_sequence(), "WAL opened");
 
     let mut state_engine = StateEngine::new(
         &registry,
@@ -76,14 +73,14 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Boot sequence ─────────────────────────────────────────
     //
-    // Step 1: Load desired state snapshot → set_desired for each entry.
-    // Step 2: Replay WAL → apply_event for each DeviceStateChanged.
-    // Step 3: 30-second boot window → devices report actual state.
-    // Step 4: boot_reconcile → correction commands for mismatches.
+    // 1. Load desired state snapshot → state_engine.set_desired
+    // 2. Replay WAL → state_engine.apply_event for DeviceStateChanged
+    // 3. Boot window — devices report actual state
+    // 4. boot_reconcile → correction commands for mismatches
 
     // Step 1 — desired state
     let mut desired_store = DesiredStateStore::load(&config.storage.desired_state_path)
-        .context("Failed to load desired state snapshot")?;
+        .context("failed to load desired state snapshot")?;
 
     for (device_id, attrs) in desired_store.get_all() {
         for (attr, value) in attrs {
@@ -96,29 +93,21 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    info!(
-        devices = desired_store.get_all().len(),
-        "desired state loaded from snapshot"
-    );
+    info!(devices = desired_store.get_all().len(), "desired state loaded");
 
     // Step 2 — WAL replay
     let replay_events = wal.replay_from(0)
         .context("WAL replay failed")?;
 
     let replay_count = replay_events.len();
-
     for event in replay_events {
         if let EventKind::DeviceStateChanged = &event.kind {
             state_engine.apply_event(&event);
         }
     }
 
-    info!(
-        events_replayed = replay_count,
-        "WAL replay complete"
-    );
+    info!(events_replayed = replay_count, "WAL replay complete");
 
-    // Wrap registry in Arc for ingestor
     let registry = Arc::new(registry);
 
     let mut ingestor = EventIngestor::new(
@@ -126,15 +115,13 @@ async fn main() -> anyhow::Result<()> {
         config.adapter.event_dedup_window_ms,
     );
 
-    let rules_path = config.storage.rules_path.clone();
-    let loaded_rules = load_rules(&rules_path, &registry)
-        .context("Failed to load rules")?;
+    let loaded_rules = load_rules(&config.storage.rules_path, &registry)
+        .context("failed to load rules")?;
 
     let mut rule_engine = RuleEngine::new();
     rule_engine.load_rules(loaded_rules);
 
-    let resolver = ConflictResolver::new();
-
+    let resolver   = ConflictResolver::new();
     let mut dispatcher = CommandDispatcher::new(
         config.dispatcher.max_retries,
         config.dispatcher.timeout_ms,
@@ -143,16 +130,25 @@ async fn main() -> anyhow::Result<()> {
     let shared = new_shared();
 
     let ui_shared = shared.clone();
-    let ui_port = config.ui.port;
     tokio::spawn(async move {
-        ui::start(ui_port, ui_shared).await;
+        ui::start(config.ui.port, ui_shared).await;
     });
 
-    // Channels — event_tx cloned into MockAdapter for confirmation injection
-    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(32);
-    let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::channel::<AdapterCommand>(32);
+    // ── Channels ──────────────────────────────────────────────
+    //
+    // event_tx   — raw device events from adapter to main
+    // cmd_tx     — adapter commands from main to adapter
+    // confirm_tx — command IDs confirmed by adapter, bypass ingestor
+    //
+    // Confirmations are system events, not device observations.
+    // Sending them through event_tx → ingestor would cause them to be
+    // dropped (ingestor only resolves known device external_ids).
 
-    let mut adapter = MockAdapter::new(event_tx.clone());
+    let (event_tx,   mut event_rx)   = tokio::sync::mpsc::channel::<kernel::types::RawDeviceEvent>(32);
+    let (cmd_tx,     mut cmd_rx)     = tokio::sync::mpsc::channel::<AdapterCommand>(32);
+    let (confirm_tx, mut confirm_rx) = tokio::sync::mpsc::channel::<String>(32);
+
+    let mut adapter = MockAdapter::new(confirm_tx);
     adapter.connect().await?;
 
     tokio::spawn(async move {
@@ -161,9 +157,7 @@ async fn main() -> anyhow::Result<()> {
                 result = adapter.next_event() => {
                     match result {
                         Ok(event) => {
-                            if event_tx.send(event).await.is_err() {
-                                break;
-                            }
+                            if event_tx.send(event).await.is_err() { break; }
                         }
                         Err(e) => {
                             tracing::error!(error = %e, "adapter error");
@@ -173,7 +167,7 @@ async fn main() -> anyhow::Result<()> {
                 }
                 Some(cmd) = cmd_rx.recv() => {
                     if let Err(e) = adapter.send_command(cmd).await {
-                        tracing::error!(error = %e, "adapter send_command failed");
+                        tracing::error!(error = %e, "send_command failed");
                     }
                 }
             }
@@ -184,17 +178,16 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Step 3 — boot window
-    // Process events normally for 30 seconds so devices can report their
-    // actual state before reconciliation diffs desired vs actual.
-    // Commands and rule firings during this window are intentionally suppressed
-    // — we don't want rules acting on stale replayed state.
-    let boot_window_secs = config.reconciler.boot_window_secs;
+    // Accept device events so actual state is fresh before reconciliation.
+    // Rule evaluation and command dispatch are suppressed during this window
+    // — we don't want rules acting on stale replayed state before devices
+    // have had a chance to report their current actual state.
     let boot_deadline = SystemTime::now()
-        + std::time::Duration::from_secs(boot_window_secs);
+        + std::time::Duration::from_secs(config.reconciler.boot_window_secs);
 
     info!(
-        boot_window_secs = boot_window_secs,
-        "boot window open — waiting for devices to report"
+        boot_window_secs = config.reconciler.boot_window_secs,
+        "boot window open"
     );
 
     loop {
@@ -202,25 +195,24 @@ async fn main() -> anyhow::Result<()> {
             .duration_since(SystemTime::now())
             .unwrap_or_default();
 
-        if remaining.is_zero() {
-            break;
-        }
+        if remaining.is_zero() { break; }
 
         let timeout = tokio::time::sleep(remaining);
         tokio::pin!(timeout);
 
         tokio::select! {
-            Some(raw_event) = event_rx.recv() => {
-                if let Some(event) = ingestor.ingest(raw_event) {
+            Some(raw) = event_rx.recv() => {
+                if let Some(event) = ingestor.ingest(raw) {
                     wal.append(event.clone(), EventPriority::for_kind(&event.kind))
                         .context("WAL append failed during boot window")?;
                     state_engine.apply_event(&event);
                     // No rule evaluation, no commands during boot window
                 }
             }
-            _ = &mut timeout => {
-                break;
-            }
+            // Drain any stale confirmations that arrive during boot window —
+            // there should be none, but drain so the channel stays clear
+            Some(_command_id) = confirm_rx.recv() => {}
+            _ = &mut timeout => { break; }
         }
     }
 
@@ -251,52 +243,54 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Event loop ────────────────────────────────────────────
 
-    let mut tick_interval = tokio::time::interval(
-        tokio::time::Duration::from_secs(1)
-    );
-    tick_interval.set_missed_tick_behavior(
-        tokio::time::MissedTickBehavior::Skip
-    );
+    let mut tick = tokio::time::interval(tokio::time::Duration::from_secs(1));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     let mut sigusr1 = tokio::signal::unix::signal(
         tokio::signal::unix::SignalKind::user_defined1()
-    ).context("Failed to register SIGUSR1 handler")?;
+    ).context("failed to register SIGUSR1 handler")?;
 
-    info!("smarthome daemon ready — entering event loop");
+    let rules_path = config.storage.rules_path.clone();
+
+    info!("entering event loop");
 
     loop {
         tokio::select! {
-            Some(raw_event) = event_rx.recv() => {
-                if let Some(event) = ingestor.ingest(raw_event) {
+            // ── Confirmation — highest priority arm ───────────
+            // Drain before processing new events so retries don't fire
+            // on commands that are already confirmed.
+            Some(command_id) = confirm_rx.recv() => {
+                if let Some(confirmed) = dispatcher.confirm(&command_id) {
+                    info!(
+                        command_id = %confirmed.id,
+                        device_id  = %confirmed.device_id,
+                        "command confirmed"
+                    );
+                    let mut payload = HashMap::new();
+                    payload.insert(
+                        "command_id".to_string(),
+                        Value::Text(confirmed.id.clone()),
+                    );
+                    let event = Event::new(
+                        EventSource::System,
+                        EventKind::CommandConfirmed,
+                        payload,
+                    );
+                    wal.append(event, EventPriority::Critical)
+                        .context("WAL append failed for CommandConfirmed")?;
+
+                    let mut s = shared.lock().unwrap();
+                    s.pending_commands.retain(|c| c.id != confirmed.id);
+                }
+            }
+
+            // ── Device event ──────────────────────────────────
+            Some(raw) = event_rx.recv() => {
+                if let Some(event) = ingestor.ingest(raw) {
                     let now = SystemTime::now();
-                    let _now_ms = to_ms(now);
-                    let priority = EventPriority::for_kind(&event.kind);
 
-                    wal.append(event.clone(), priority)
+                    wal.append(event.clone(), EventPriority::for_kind(&event.kind))
                         .context("WAL append failed")?;
-
-                    // Route CommandConfirmed to dispatcher explicitly —
-                    // main is the router, no subscription channel needed
-                    if let EventKind::CommandConfirmed = &event.kind {
-                        if let Some(Value::Text(command_id)) =
-                            event.payload.get("command_id")
-                        {
-                            if let Some(confirmed) = dispatcher.confirm(command_id) {
-                                info!(
-                                    command_id = %confirmed.id,
-                                    device_id = %confirmed.device_id,
-                                    "command confirmed"
-                                );
-                                let mut s = shared.lock().unwrap();
-                                s.pending_commands.retain(|c| c.id != confirmed.id);
-                            }
-                        }
-                    }
-
-                    // Route system.command_confirmed raw events
-                    if raw_event_is_confirmation(&event) {
-                        // Already handled above via EventKind::CommandConfirmed
-                    }
 
                     let update = state_engine.apply_event(&event);
 
@@ -305,7 +299,6 @@ async fn main() -> anyhow::Result<()> {
                         state_engine.get_all(),
                         now,
                     );
-
                     candidates.extend(rule_engine.tick(now, state_engine.get_all()));
 
                     dispatch_resolved(
@@ -318,21 +311,15 @@ async fn main() -> anyhow::Result<()> {
                     ).await?;
 
                     let mut s = shared.lock().unwrap();
-                    s.devices = state_engine.get_all().clone();
+                    s.devices          = state_engine.get_all().clone();
                     s.pending_commands = dispatcher.all_commands()
                         .into_iter().cloned().collect();
-
-                    info!(
-                        wal_sequence = wal.len(),
-                        devices = s.devices.len(),
-                        pending = s.pending_commands.len(),
-                        "event processed"
-                    );
                 }
             }
 
-            _ = tick_interval.tick() => {
-                let now = SystemTime::now();
+            // ── Tick ──────────────────────────────────────────
+            _ = tick.tick() => {
+                let now    = SystemTime::now();
                 let now_ms = to_ms(now);
 
                 // Confidence decay
@@ -341,11 +328,11 @@ async fn main() -> anyhow::Result<()> {
                     tracing::warn!(devices = ?degraded, "devices confidence degraded");
                 }
 
-                // Rule timer evaluation — delayed actions and timeouts
-                let timer_commands = rule_engine.tick(now, state_engine.get_all());
-                if !timer_commands.is_empty() {
+                // Rule timers
+                let timer_cmds = rule_engine.tick(now, state_engine.get_all());
+                if !timer_cmds.is_empty() {
                     dispatch_resolved(
-                        timer_commands,
+                        timer_cmds,
                         &resolver,
                         &mut dispatcher,
                         &cmd_tx,
@@ -354,14 +341,14 @@ async fn main() -> anyhow::Result<()> {
                     ).await?;
                 }
 
-                // Continuous reconciliation — desired vs actual
-                let reconcile_commands = continuous_reconcile(
+                // Continuous reconciliation
+                let recon_cmds = continuous_reconcile(
                     &state_engine,
                     config.reconciler.confidence_degraded_threshold,
                 );
-                if !reconcile_commands.is_empty() {
+                if !recon_cmds.is_empty() {
                     dispatch_resolved(
-                        reconcile_commands,
+                        recon_cmds,
                         &resolver,
                         &mut dispatcher,
                         &cmd_tx,
@@ -370,7 +357,7 @@ async fn main() -> anyhow::Result<()> {
                     ).await?;
                 }
 
-                // Command timeouts and retries
+                // Command timeouts + retries
                 dispatcher.tick(now_ms);
 
                 for cmd in dispatcher.drain_pending() {
@@ -380,38 +367,43 @@ async fn main() -> anyhow::Result<()> {
                 for failed in dispatcher.drain_failed() {
                     tracing::error!(
                         command_id = %failed.id,
-                        device_id = %failed.device_id,
-                        "command permanently failed"
+                        device_id  = %failed.device_id,
+                        "command permanently failed after max retries"
                     );
                     let mut payload = HashMap::new();
                     payload.insert("command_id".to_string(), Value::Text(failed.id.clone()));
-                    payload.insert("device_id".to_string(), Value::Text(failed.device_id.0.clone()));
-                    let event = Event::new(EventSource::System, EventKind::CommandFailed, payload);
+                    payload.insert("device_id".to_string(),  Value::Text(failed.device_id.0.clone()));
+                    let event = Event::new(
+                        EventSource::System,
+                        EventKind::CommandFailed,
+                        payload,
+                    );
                     wal.append(event, EventPriority::Critical)
                         .context("WAL append failed for CommandFailed")?;
                 }
 
-                // Flush desired state if dirty and interval elapsed
+                // Periodic desired state flush
                 desired_store.flush_if_needed(now)
-                    .context("Desired state flush failed")?;
+                    .context("desired state flush failed")?;
 
                 let mut s = shared.lock().unwrap();
-                s.devices = state_engine.get_all().clone();
+                s.devices          = state_engine.get_all().clone();
                 s.pending_commands = dispatcher.all_commands()
                     .into_iter().cloned().collect();
             }
 
+            // ── SIGUSR1 — hot reload rules ─────────────────────
             _ = sigusr1.recv() => {
-                info!("SIGUSR1 received — reloading rules");
+                info!("SIGUSR1 — reloading rules");
                 match load_rules(&rules_path, &registry) {
                     Ok(rules) => {
-                        let report = rule_engine.hot_reload(rules);
+                        let r = rule_engine.hot_reload(rules);
                         info!(
-                            loaded = report.rules_loaded,
-                            added = report.rules_added,
-                            removed = report.rules_removed,
-                            in_flight_cancelled = report.in_flight_cancelled,
-                            "rules hot-reloaded"
+                            loaded            = r.rules_loaded,
+                            added             = r.rules_added,
+                            removed           = r.rules_removed,
+                            in_flight_cancelled = r.in_flight_cancelled,
+                            "rules reloaded"
                         );
                     }
                     Err(e) => tracing::error!(
@@ -421,6 +413,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
 
+            // ── Shutdown ──────────────────────────────────────
             _ = tokio::signal::ctrl_c() => {
                 info!("shutdown signal received");
                 break;
@@ -428,12 +421,12 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // ── Shutdown ──────────────────────────────────────────────
+    // ── Clean shutdown ────────────────────────────────────────
 
-    info!("flushing desired state before shutdown");
-    desired_store.flush().context("Desired state flush failed")?;
+    info!("flushing desired state");
+    desired_store.flush().context("desired state flush failed")?;
 
-    info!("flushing WAL buffer before shutdown");
+    info!("flushing WAL buffer");
     wal.flush().context("WAL flush failed")?;
 
     info!("smarthome daemon stopped cleanly");
@@ -461,21 +454,27 @@ async fn dispatch_resolved(
         payload.insert(
             "winning_rule".to_string(),
             Value::Text(
-                conflict.winning_rule.as_ref().map(|r| r.0.clone()).unwrap_or_default()
+                conflict.winning_rule
+                    .as_ref()
+                    .map(|r| r.0.clone())
+                    .unwrap_or_default()
             ),
         );
         payload.insert(
             "losing_rule".to_string(),
             Value::Text(
-                conflict.losing_rule.as_ref().map(|r| r.0.clone()).unwrap_or_default()
+                conflict.losing_rule
+                    .as_ref()
+                    .map(|r| r.0.clone())
+                    .unwrap_or_default()
             ),
         );
-        payload.insert("device_id".to_string(), Value::Text(conflict.device_id.0.clone()));
-        payload.insert("attribute".to_string(), Value::Text(conflict.attribute.0.clone()));
+        payload.insert("device_id".to_string(),  Value::Text(conflict.device_id.0.clone()));
+        payload.insert("attribute".to_string(),   Value::Text(conflict.attribute.0.clone()));
 
         let event = Event::new(EventSource::System, EventKind::RuleConflict, payload);
         wal.append(event, EventPriority::Normal)
-            .context("WAL append failed for conflict")?;
+            .context("WAL append failed for RuleConflict")?;
 
         shared.lock().unwrap().conflicts.push(conflict.clone());
     }
@@ -494,25 +493,21 @@ fn send_to_adapter(
     dispatcher: &mut CommandDispatcher,
 ) {
     let adapter_cmd = AdapterCommand {
-        external_id: command.device_id.0.clone(),
-        attribute: command.attribute.0.clone(),
-        value: command.value.clone(),
-        command_id: command.id.clone(),
+        external_id:  command.device_id.0.clone(),
+        attribute:    command.attribute.0.clone(),
+        value:        command.value.clone(),
+        command_id:   command.id.clone(),
     };
 
     match cmd_tx.try_send(adapter_cmd) {
-        Ok(_) => dispatcher.mark_sent(&command.id),
+        Ok(_)  => dispatcher.mark_sent(&command.id),
         Err(e) => tracing::error!(
             command_id = %command.id,
-            device_id = %command.device_id,
-            error = %e,
+            device_id  = %command.device_id,
+            error      = %e,
             "failed to send command to adapter"
         ),
     }
-}
-
-fn raw_event_is_confirmation(event: &Event) -> bool {
-    matches!(&event.kind, EventKind::CommandConfirmed)
 }
 
 fn to_ms(t: SystemTime) -> u64 {
