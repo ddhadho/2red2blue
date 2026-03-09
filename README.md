@@ -128,14 +128,14 @@ kill -USR1 $(pidof daemon)
 | Mock adapter | ✓ complete |
 | Zigbee2MQTT adapter | planned |
 | Home Assistant adapter | in progress |
-| Boot reconciliation | planned |
+| Boot reconciliation | ✓ complete |
 | UI | planned |
 
 ---
 
 ## Design Documentation
 
-The project includes **47 technical design documents** covering the
+The project includes **48 technical design documents** covering the
 internal architecture and design decisions:
 
 - rule DSL specification
