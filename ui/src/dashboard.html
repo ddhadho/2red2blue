@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2red2blue // daemon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0a0c0f;
+    --bg-panel:  #0f1218;
+    --bg-card:   #141820;
+    --border:    #1e2530;
+    --border-hi: #2a3545;
+    --text:      #8fa3b8;
+    --text-hi:   #c8daea;
+    --text-dim:  #3a4a5c;
+    --mono:      'Share Tech Mono', monospace;
+    --sans:      'Barlow Condensed', sans-serif;
+    --green:     #2dff8a;
+    --yellow:    #ffd84a;
+    --red:       #ff3d5a;
+    --blue:      #3da8ff;
+    --orange:    #ff8c3d;
+    --green-dim: #0d3320;
+    --yellow-dim:#332b00;
+    --red-dim:   #330010;
+    --blue-dim:  #001833;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-panel);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .wordmark {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 18px;
+    letter-spacing: 0.15em;
+    color: var(--text-hi);
+    text-transform: uppercase;
+  }
+
+  .wordmark .r { color: var(--red); }
+  .wordmark .b { color: var(--blue); }
+
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+
+  .ticker {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .pulse {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+  }
+
+  .last-updated {
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
+  }
+
+  .uptime {
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
+  }
+
+  .uptime span {
+    color: var(--yellow);
+  }
+
+  /* ── Layout ── */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto;
+    gap: 1px;
+    background: var(--border);
+    border-top: none;
+  }
+
+  .panel {
+    background: var(--bg-panel);
+    padding: 0;
+  }
+
+  .panel.full-width {
+    grid-column: 1 / -1;
+  }
+
+  /* ── Panel header ── */
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-card);
+  }
+
+  .panel-title {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  .panel-count {
+    font-size: 10px;
+    color: var(--text-dim);
+    background: var(--border);
+    padding: 1px 6px;
+    border-radius: 2px;
+  }
+
+  /* ── Panel body ── */
+  .panel-body {
+    padding: 12px 16px;
+    max-height: 340px;
+    overflow-y: auto;
+  }
+
+  .panel-body::-webkit-scrollbar { width: 3px; }
+  .panel-body::-webkit-scrollbar-track { background: transparent; }
+  .panel-body::-webkit-scrollbar-thumb { background: var(--border-hi); }
+
+  /* ── Device cards ── */
+  .device-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+  }
+
+  .device-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    padding: 10px 12px;
+    border-radius: 2px;
+    transition: border-color 0.2s;
+  }
+
+  .device-card:hover {
+    border-color: var(--border-hi);
+  }
+
+  .device-card.state-mismatch { border-color: var(--orange); }
+  .device-card.state-unknown  { border-color: var(--red);    box-shadow: 0 0 6px rgba(255,61,90,0.15); }
+  .device-card.state-ok       { border-color: var(--border); }
+
+  .device-id {
+    font-size: 11px;
+    color: var(--text-hi);
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .confidence-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .confidence-bar-track {
+    flex: 1;
+    height: 3px;
+    background: var(--border);
+    border-radius: 1px;
+    overflow: hidden;
+  }
+
+  .confidence-bar-fill {
+    height: 100%;
+    border-radius: 1px;
+    transition: width 0.4s ease, background 0.4s ease;
+  }
+
+  .confidence-val {
+    font-size: 10px;
+    color: var(--text-dim);
+    width: 32px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .state-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 2px;
+    font-size: 10px;
+  }
+
+  .state-label {
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 9px;
+  }
+
+  .state-value {
+    color: var(--text-hi);
+    font-size: 11px;
+  }
+
+  .state-value.desired {
+    color: var(--blue);
+  }
+
+  .state-value.mismatch {
+    color: var(--yellow);
+  }
+
+  .state-value.unknown {
+    color: var(--text-dim);
+    font-style: italic;
+  }
+
+  /* ── Table rows (commands, conflicts, rules) ── */
+  .log-row {
+    display: grid;
+    gap: 0 12px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+    align-items: start;
+  }
+
+  .log-row:last-child { border-bottom: none; }
+
+  .log-row.cmd-row {
+    grid-template-columns: 1fr 80px 60px 40px;
+  }
+
+  .log-row.conflict-row {
+    grid-template-columns: 80px 1fr 1fr;
+  }
+
+  .log-row.rule-row {
+    grid-template-columns: 16px 1fr 40px 80px;
+  }
+
+  .log-row.inflight-row {
+    grid-template-columns: 1fr 80px 60px;
+  }
+
+  .col-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    margin-bottom: 2px;
+  }
+
+  .col-value {
+    font-size: 11px;
+    color: var(--text-hi);
+    word-break: break-all;
+  }
+
+  .col-value.dim { color: var(--text-dim); }
+  .col-value.mono { font-family: var(--mono); }
+
+  /* ── Status badges ── */
+  .badge {
+    display: inline-block;
+    font-size: 9px;
+    font-family: var(--sans);
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    border-radius: 1px;
+    white-space: nowrap;
+  }
+
+  .badge.pending  { background: var(--yellow-dim); color: var(--yellow); }
+  .badge.sent     { background: var(--blue-dim);   color: var(--blue); }
+  .badge.confirmed{ background: var(--green-dim);  color: var(--green); }
+  .badge.failed   { background: var(--red-dim);    color: var(--red); }
+  .badge.enabled  { background: var(--green-dim);  color: var(--green); }
+  .badge.disabled { background: var(--border);     color: var(--text-dim); }
+  .badge.winner   { background: var(--green-dim);  color: var(--green); }
+  .badge.loser    { background: var(--red-dim);    color: var(--red); }
+  .badge.delayed  { background: var(--yellow-dim); color: var(--yellow); }
+  .badge.timeout  { background: var(--red-dim);    color: var(--orange); }
+
+  /* ── Reconciliation panel ── */
+  .recon-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    margin-bottom: 12px;
+  }
+
+  .recon-stat {
+    background: var(--bg-card);
+    padding: 12px 14px;
+  }
+
+  .recon-stat-val {
+    font-family: var(--sans);
+    font-size: 28px;
+    font-weight: 300;
+    color: var(--text-hi);
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+
+  .recon-stat-val.warn { color: var(--yellow); }
+  .recon-stat-val.ok   { color: var(--green); }
+
+  .recon-stat-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--text-dim);
+  }
+
+  .recon-meta {
+    font-size: 10px;
+    color: var(--text-dim);
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 24px;
+  }
+
+  .recon-meta span { color: var(--text); }
+
+  .unreachable-list {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .unreachable-tag {
+    font-size: 10px;
+    padding: 2px 6px;
+    background: var(--red-dim);
+    color: var(--red);
+    border-radius: 1px;
+  }
+
+  /* ── Empty state ── */
+  .empty {
+    padding: 20px 0;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+  }
+
+  /* ── Error / loading ── */
+  .status-line {
+    font-size: 10px;
+    color: var(--text-dim);
+    padding: 6px 0;
+    letter-spacing: 0.05em;
+  }
+
+  .error-line {
+    font-size: 10px;
+    color: var(--red);
+    padding: 6px 0;
+  }
+
+  /* ── Column headers ── */
+  .col-headers {
+    display: grid;
+    gap: 0 12px;
+    padding: 0 0 6px 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+  }
+
+  .col-headers.cmd-row    { grid-template-columns: 1fr 80px 60px 40px; }
+  .col-headers.conflict-row { grid-template-columns: 80px 1fr 1fr; }
+  .col-headers.rule-row   { grid-template-columns: 16px 1fr 40px 80px; }
+  .col-headers.inflight-row { grid-template-columns: 1fr 80px 60px; }
+
+  .ch {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wordmark">2<span class="r">red</span>2<span class="b">blue</span> <span style="color:var(--text-dim);font-weight:300">//</span> daemon</div>
+  <div class="header-meta">
+    <div class="ticker">
+      <div class="pulse" id="pulse"></div>
+      <span id="poll-status">connecting</span>
+    </div>
+    <div class="uptime">up <span id="uptime">—</span></div>
+    <div class="last-updated" id="last-updated">--:--:--</div>
+  </div>
+</header>
+
+<div class="grid">
+
+  <!-- ── Devices ── -->
+  <div class="panel full-width">
+    <div class="panel-header">
+      <span class="panel-title">Device State</span>
+      <span class="panel-count" id="device-count">0 devices</span>
+    </div>
+    <div class="panel-body">
+      <div class="device-grid" id="devices-panel">
+        <div class="status-line">loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Commands ── -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Commands</span>
+      <span class="panel-count" id="cmd-count">0</span>
+    </div>
+    <div class="panel-body">
+      <div class="col-headers cmd-row">
+        <span class="ch">Device / Attr</span>
+        <span class="ch">Value</span>
+        <span class="ch">Status</span>
+        <span class="ch">Retry</span>
+      </div>
+      <div id="commands-panel"><div class="empty">no pending commands</div></div>
+    </div>
+  </div>
+
+  <!-- ── Conflicts ── -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Conflicts</span>
+      <span class="panel-count" id="conflict-count">0</span>
+    </div>
+    <div class="panel-body">
+      <div class="col-headers conflict-row">
+        <span class="ch">Device</span>
+        <span class="ch">Winner</span>
+        <span class="ch">Loser</span>
+      </div>
+      <div id="conflicts-panel"><div class="empty">no conflicts</div></div>
+    </div>
+  </div>
+
+  <!-- ── Rules ── -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Rules</span>
+      <span class="panel-count" id="rules-count">0</span>
+    </div>
+    <div class="panel-body">
+      <div class="col-headers rule-row">
+        <span class="ch"></span>
+        <span class="ch">Name</span>
+        <span class="ch">Pri</span>
+        <span class="ch">Group</span>
+      </div>
+      <div id="rules-panel"><div class="empty">no rules loaded</div></div>
+    </div>
+  </div>
+
+  <!-- ── In-flight ── -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">In-Flight</span>
+      <span class="panel-count" id="inflight-count">0</span>
+    </div>
+    <div class="panel-body">
+      <div class="col-headers inflight-row">
+        <span class="ch">Rule / Device</span>
+        <span class="ch">Fires in</span>
+        <span class="ch">Kind</span>
+      </div>
+      <div id="inflight-panel"><div class="empty">no delayed actions</div></div>
+    </div>
+  </div>
+
+  <!-- ── Reconciliation ── -->
+  <div class="panel full-width">
+    <div class="panel-header">
+      <span class="panel-title">Last Boot Reconciliation</span>
+    </div>
+    <div class="panel-body">
+      <div id="recon-panel"><div class="status-line">loading…</div></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const POLL_MS = 2000;
+
+let bootTime = null;
+
+function formatUptime(ms) {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2,'0')}m`;
+  if (m > 0) return `${m}m ${String(sec).padStart(2,'0')}s`;
+  return `${sec}s`;
+}
+
+function tickUptime() {
+  if (!bootTime) return;
+  el('uptime').textContent = formatUptime(Date.now() - bootTime);
+}
+
+
+// ── Utilities ────────────────────────────────────────────────
+
+function el(id) { return document.getElementById(id); }
+
+function ts(ms) {
+  if (!ms) return '—';
+  return new Date(ms).toLocaleTimeString('en-GB', { hour12: false });
+}
+
+function countdown(ms) {
+  const diff = Math.max(0, ms - Date.now());
+  const s = Math.floor(diff / 1000);
+  if (s < 60)  return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60) + 's';
+  return Math.floor(s/3600) + 'h';
+}
+
+function confColor(v) {
+  if (v >= 0.8) return 'var(--green)';
+  if (v >= 0.5) return 'var(--yellow)';
+  if (v >= 0.2) return 'var(--orange)';
+  return 'var(--red)';
+}
+
+function valueStr(v) {
+  if (v === null || v === undefined) return '—';
+  if (typeof v === 'object') {
+    // Value enum: {Text: "x"} | {Float: 1.0} | {Int: 1} | {Bool: true}
+    const k = Object.keys(v)[0];
+    return String(v[k]);
+  }
+  return String(v);
+}
+
+function badge(cls, text) {
+  return `<span class="badge ${cls}">${text}</span>`;
+}
+
+// ── Renderers ────────────────────────────────────────────────
+
+function renderDevices(data) {
+  const entries = Object.entries(data);
+  el('device-count').textContent = entries.length + ' device' + (entries.length !== 1 ? 's' : '');
+
+  if (!entries.length) {
+    el('devices-panel').innerHTML = '<div class="empty">no devices</div>';
+    return;
+  }
+
+  const html = entries.map(([id, d]) => {
+    const conf = d.confidence ? d.confidence.value : 0;
+    const pct  = Math.round(conf * 100);
+    const fill = confColor(conf);
+
+    // Border class: mismatch (orange) overrides ok; confidence drives accent bar independently
+    const actual_state  = d.actual  || {};
+    const desired_state = d.desired || {};
+    const hasMismatch = Object.entries(desired_state).some(
+      ([k, v]) => valueStr(actual_state[k]) !== valueStr(v)
+    );
+    const cardStateClass = conf < 0.2
+      ? 'state-unknown'
+      : hasMismatch ? 'state-mismatch' : 'state-ok';
+
+    const attrs = Object.keys(d.actual || {});
+    const attrRows = attrs.map(attr => {
+      const actual  = valueStr(d.actual[attr]);
+      const desired = d.desired && d.desired[attr] !== undefined
+                    ? valueStr(d.desired[attr]) : null;
+      const mismatch = desired !== null && desired !== actual;
+      const desiredClass = mismatch ? 'mismatch' : 'desired';
+      return `
+        <div class="state-row">
+          <span class="state-label">${attr}</span>
+          <span class="state-value">${actual}</span>
+        </div>
+        ${desired !== null ? `
+        <div class="state-row">
+          <span class="state-label">→ desired</span>
+          <span class="state-value ${desiredClass}">${desired}</span>
+        </div>` : ''}`;
+    }).join('');
+
+    return `
+      <div class="device-card ${cardStateClass}">
+        <div class="device-id">${id}</div>
+        <div class="confidence-row">
+          <div class="confidence-bar-track">
+            <div class="confidence-bar-fill"
+                 style="width:${pct}%;background:${fill}"></div>
+          </div>
+          <div class="confidence-val" style="color:${fill}">${pct}%</div>
+        </div>
+        ${attrRows || '<div class="state-row"><span class="state-label dim">no data</span></div>'}
+      </div>`;
+  }).join('');
+
+  el('devices-panel').innerHTML = html;
+}
+
+function renderCommands(data) {
+  el('cmd-count').textContent = data.length;
+  if (!data.length) {
+    el('commands-panel').innerHTML = '<div class="empty">no pending commands</div>';
+    return;
+  }
+  const html = data.map(c => {
+    const status = (c.status || 'pending').toLowerCase();
+    return `
+      <div class="log-row cmd-row">
+        <div>
+          <div class="col-label">${c.device_id || '—'}</div>
+          <div class="col-value">${c.attribute || '—'}</div>
+        </div>
+        <div>
+          <div class="col-label">value</div>
+          <div class="col-value">${valueStr(c.value)}</div>
+        </div>
+        <div>${badge(status, status)}</div>
+        <div>
+          <div class="col-value dim">${c.retry_count || 0}</div>
+        </div>
+      </div>`;
+  }).join('');
+  el('commands-panel').innerHTML = html;
+}
+
+function renderConflicts(data) {
+  el('conflict-count').textContent = data.length;
+  if (!data.length) {
+    el('conflicts-panel').innerHTML = '<div class="empty">no conflicts</div>';
+    return;
+  }
+  // Show most recent 20
+  const html = data.slice(-20).reverse().map(c => {
+    const winner = c.winning_rule ? c.winning_rule : '—';
+    const loser  = c.losing_rule  ? c.losing_rule  : '—';
+    return `
+      <div class="log-row conflict-row">
+        <div>
+          <div class="col-label">${c.device_id || '—'}</div>
+          <div class="col-value dim">${c.attribute || ''}</div>
+        </div>
+        <div>
+          <div class="col-label">winner</div>
+          <div class="col-value">${badge('winner', 'win')} ${winner}</div>
+        </div>
+        <div>
+          <div class="col-label">loser</div>
+          <div class="col-value">${badge('loser', 'lose')} ${loser}</div>
+        </div>
+      </div>`;
+  }).join('');
+  el('conflicts-panel').innerHTML = html;
+}
+
+function renderRules(data) {
+  const rules = data.rules || [];
+  el('rules-count').textContent = rules.length;
+  if (!rules.length) {
+    el('rules-panel').innerHTML = '<div class="empty">no rules loaded</div>';
+    return;
+  }
+  const html = rules.map(r => {
+    const statusCls = r.enabled ? 'enabled' : 'disabled';
+    const dot = `<div style="width:6px;height:6px;border-radius:50%;
+                  background:${r.enabled ? 'var(--green)' : 'var(--text-dim)'};
+                  box-shadow:${r.enabled ? '0 0 4px var(--green)' : 'none'};
+                  margin-top:3px"></div>`;
+    return `
+      <div class="log-row rule-row">
+        <div>${dot}</div>
+        <div>
+          <div class="col-label">${r.id}</div>
+          <div class="col-value">${r.name}</div>
+        </div>
+        <div>
+          <div class="col-value dim">${r.priority}</div>
+        </div>
+        <div>
+          <div class="col-value dim">${r.conflict_group}</div>
+        </div>
+      </div>`;
+  }).join('');
+  el('rules-panel').innerHTML = html;
+
+  // In-flight
+  const inflight = data.in_flight || [];
+  el('inflight-count').textContent = inflight.length;
+  if (!inflight.length) {
+    el('inflight-panel').innerHTML = '<div class="empty">no delayed actions</div>';
+    return;
+  }
+  const ihtml = inflight.map(e => {
+    const kindCls  = e.kind === 'DelayedAction' ? 'delayed' : 'timeout';
+    const kindLbl  = e.kind === 'DelayedAction' ? 'delay' : 'timeout';
+    return `
+      <div class="log-row inflight-row">
+        <div>
+          <div class="col-label">${e.rule_id}</div>
+          <div class="col-value">${e.device_id} / ${e.attribute}</div>
+        </div>
+        <div>
+          <div class="col-value" id="cd-${e.fires_at_ms}">${countdown(e.fires_at_ms)}</div>
+        </div>
+        <div>${badge(kindCls, kindLbl)}</div>
+      </div>`;
+  }).join('');
+  el('inflight-panel').innerHTML = ihtml;
+}
+
+function renderReconciliation(data) {
+  if (data.status === 'not_yet_reconciled') {
+    el('recon-panel').innerHTML = '<div class="status-line">not yet reconciled — daemon still in boot window</div>';
+    return;
+  }
+
+  const mi = data.mismatches_found || 0;
+  const ci = data.commands_issued  || 0;
+  const sn = data.skipped_no_actual     || 0;
+  const sl = data.skipped_low_confidence || 0;
+  const unreachable = data.unreachable_devices || [];
+
+  const miClass = mi > 0 ? 'warn' : 'ok';
+  const ciClass = ci > 0 ? 'warn' : 'ok';
+
+  const unreachableHtml = unreachable.length
+    ? `<div class="unreachable-list">${unreachable.map(d =>
+        `<span class="unreachable-tag">${d}</span>`).join('')}</div>`
+    : '';
+
+  el('recon-panel').innerHTML = `
+    <div class="recon-grid">
+      <div class="recon-stat">
+        <div class="recon-stat-val">${data.devices_evaluated || 0}</div>
+        <div class="recon-stat-label">Devices Evaluated</div>
+      </div>
+      <div class="recon-stat">
+        <div class="recon-stat-val ${miClass}">${mi}</div>
+        <div class="recon-stat-label">Mismatches Found</div>
+      </div>
+      <div class="recon-stat">
+        <div class="recon-stat-val ${ciClass}">${ci}</div>
+        <div class="recon-stat-label">Commands Issued</div>
+      </div>
+      <div class="recon-stat">
+        <div class="recon-stat-val ${unreachable.length > 0 ? 'warn' : 'ok'}">${unreachable.length}</div>
+        <div class="recon-stat-label">Unreachable</div>
+      </div>
+    </div>
+    <div class="recon-meta">
+      completed at <span>${ts(data.completed_at)}</span>
+      &nbsp;·&nbsp; skipped (no actual) <span>${sn}</span>
+      &nbsp;·&nbsp; skipped (low confidence) <span>${sl}</span>
+    </div>
+    ${unreachableHtml}`;
+}
+
+// ── Fetch + poll ─────────────────────────────────────────────
+
+let pollOk = true;
+
+async function fetchJSON(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+async function poll() {
+  try {
+    const [state, commands, conflicts, recon, rules] = await Promise.all([
+      fetchJSON('/state'),
+      fetchJSON('/commands'),
+      fetchJSON('/conflicts'),
+      fetchJSON('/reconciliation'),
+      fetchJSON('/rules'),
+    ]);
+
+    renderDevices(state);
+    renderCommands(commands);
+    renderConflicts(conflicts);
+    renderReconciliation(recon);
+    renderRules(rules);
+
+    if (!bootTime) bootTime = Date.now();
+    el('last-updated').textContent = new Date().toLocaleTimeString('en-GB', { hour12: false });
+    el('poll-status').textContent  = 'live';
+    el('pulse').style.background   = 'var(--green)';
+    el('pulse').style.boxShadow    = '0 0 6px var(--green)';
+    pollOk = true;
+  } catch (e) {
+    el('poll-status').textContent = 'error: ' + e.message;
+    el('pulse').style.background  = 'var(--red)';
+    el('pulse').style.boxShadow   = '0 0 6px var(--red)';
+    pollOk = false;
+  }
+}
+
+// Tick countdowns every second without a full re-render
+function tickCountdowns() {
+  document.querySelectorAll('[id^="cd-"]').forEach(el => {
+    const ms = parseInt(el.id.replace('cd-', ''));
+    el.textContent = countdown(ms);
+  });
+}
+
+poll();
+setInterval(poll, POLL_MS);
+setInterval(tickCountdowns, 1000);
+setInterval(tickUptime, 1000);
+</script>
+</body>
+</html>
