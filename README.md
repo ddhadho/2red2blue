@@ -117,7 +117,7 @@ kill -USR1 $(pidof daemon)
 
 ---
 
-## Status
+## MVP Status
 
 | Component | Status |
 |-----------|--------|
@@ -129,7 +129,7 @@ kill -USR1 $(pidof daemon)
 | Zigbee2MQTT adapter | planned |
 | Home Assistant adapter | in progress |
 | Boot reconciliation | ✓ complete |
-| UI | planned |
+| UI | ✓ complete |
 
 ---
 
