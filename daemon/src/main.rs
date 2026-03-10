@@ -140,6 +140,12 @@ async fn main() -> anyhow::Result<()> {
         ui::start(config.ui.port, ui_shared).await;
     });
 
+    // Populate rule summaries — stable until next hot-reload
+    {
+        let mut s = shared.lock().unwrap();
+        s.rule_summaries = rule_engine.rule_summaries();
+    }
+
     // ── Channels ──────────────────────────────────────────────
     //
     // event_tx   — raw device events from adapter to main
@@ -396,6 +402,7 @@ async fn main() -> anyhow::Result<()> {
                 s.devices          = state_engine.get_all().clone();
                 s.pending_commands = dispatcher.all_commands()
                     .into_iter().cloned().collect();
+                s.in_flight        = rule_engine.in_flight_summaries();
             }
 
             // ── SIGUSR1 — hot reload rules ─────────────────────
@@ -411,6 +418,9 @@ async fn main() -> anyhow::Result<()> {
                             in_flight_cancelled = r.in_flight_cancelled,
                             "rules reloaded"
                         );
+                        // Refresh summaries — rule set has changed
+                        shared.lock().unwrap().rule_summaries =
+                            rule_engine.rule_summaries();
                     }
                     Err(e) => tracing::error!(
                         error = %e,
