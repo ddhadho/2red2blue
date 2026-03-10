@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use crate::types::{DeviceId, DeviceState, Command};
 use crate::resolver::ConflictRecord;
 use crate::reconciler::ReconciliationReport;
+use crate::rule_types::{RuleSummary, InFlightSummary};
 
 // ── SharedState ──────────────────────────────────────────────
 //
@@ -27,6 +28,14 @@ pub struct SharedState {
     /// None until the first reconciliation completes.
     /// UI returns {"status":"not_yet_reconciled"} when None.
     pub last_reconciliation: Option<ReconciliationReport>,
+
+    /// Rule summaries — updated on load and hot-reload only.
+    /// Stable between reloads, no need to update on every tick.
+    pub rule_summaries: Vec<RuleSummary>,
+
+    /// In-flight delayed actions — updated on every tick alongside
+    /// pending_commands. Volatile — reflects live rule engine state.
+    pub in_flight: Vec<InFlightSummary>,
 }
 
 impl SharedState {
