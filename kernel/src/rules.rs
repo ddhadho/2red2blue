@@ -174,6 +174,45 @@ impl RuleEngine {
         commands
     }
 
+    // ── UI summaries ─────────────────────────────────────────
+    //
+    // Read-only projections for the dashboard.
+    // rule_summaries — stable, updated on load and hot-reload only.
+    // in_flight_summaries — volatile, updated on every tick.
+
+    pub fn rule_summaries(&self) -> Vec<RuleSummary> {
+        self.rules
+            .iter()
+            .map(RuleSummary::from_rule)
+            .collect()
+    }
+
+    pub fn in_flight_summaries(&self) -> Vec<InFlightSummary> {
+        let mut summaries = vec![];
+
+        for rule_state in self.rule_states.values() {
+            for entry in &rule_state.in_flight {
+                // Use the first action as the representative display row.
+                // Most in-flight entries have one action. If multiple, the
+                // dashboard shows the first — user reads the rule for the rest.
+                if let Some(first) = entry.actions.first() {
+                    summaries.push(InFlightSummary {
+                        rule_id:    rule_state.rule_id.clone(),
+                        device_id:  first.device_id.clone(),
+                        attribute:  first.attribute.clone(),
+                        value:      first.value.clone(),
+                        fires_at_ms: entry.execute_at,
+                        kind:       entry.kind.clone(),
+                    });
+                }
+            }
+        }
+
+        // Sort by fires_at_ms ascending — soonest first in the UI
+        summaries.sort_by_key(|s| s.fires_at_ms);
+        summaries
+    }
+
     // ── Trigger check ────────────────────────────────────────
 
     fn is_triggered(&self, rule: &Rule, update: &StateUpdate) -> bool {
