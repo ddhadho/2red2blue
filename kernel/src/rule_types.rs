@@ -212,6 +212,47 @@ pub enum InFlightKind {
     Timeout,        // from StatefulConfig.timeout_seconds
 }
 
+// ── UI summary types ─────────────────────────────────────────
+// Shallow read-only projections for the dashboard.
+// No condition trees, no action details — just what the UI needs.
+// Written to SharedState, served at GET /rules.
+
+/// One row in the rules panel — identity, status, and scheduling metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuleSummary {
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    pub priority: u8,
+    pub conflict_group: String,
+}
+
+impl RuleSummary {
+    pub fn from_rule(rule: &Rule) -> Self {
+        Self {
+            id: rule.id.0.clone(),
+            name: rule.name.clone(),
+            enabled: rule.enabled,
+            priority: rule.priority,
+            conflict_group: rule.conflict_group.clone(),
+        }
+    }
+}
+
+/// One row in the in-flight panel — a delayed action waiting to fire.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InFlightSummary {
+    pub rule_id: String,
+    /// First action's device and attribute — representative of what will fire.
+    /// Most in-flight entries have one action; if multiple, first is shown.
+    pub device_id: String,
+    pub attribute: String,
+    pub value: Value,
+    /// Unix millis when this entry fires.
+    pub fires_at_ms: u64,
+    pub kind: InFlightKind,
+}
+
 // ── Hot reload report ────────────────────────────────────────
 
 #[derive(Debug, Clone)]
