@@ -3,110 +3,100 @@
 [![Language](https://img.shields.io/badge/language-Rust-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20OpenWrt-blue.svg)]()
 [![Status](https://img.shields.io/badge/status-active%20development-yellow.svg)]()
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 A deterministic, crash-resilient smart home automation daemon written in Rust.
 
-Designed for environments where **power outages, router reboots, and unreliable
-internet connectivity are normal**. Unlike cloud-dependent systems, 2red2blue
-continues operating entirely locally and recovers its full state after crashes
-or power loss.
+Designed for environments where **power outages, reboots, and unreliable internet
+are normal**. 2red2blue runs entirely locally and recovers its full state after
+crashes or power loss — no cloud dependency, no manual intervention required.
 
-Runs on inexpensive hardware like a Raspberry Pi or OpenWrt router and is
-configured using a declarative automation rule DSL.
-
----
-
-## Motivation
-
-Most consumer smart home systems depend on cloud connectivity and
-opaque vendor ecosystems. When internet connectivity drops or a
-vendor service shuts down, automation stops working.
-
-2red2blue explores an alternative design:
-
-- fully local execution
-- deterministic crash recovery
-- hardware-agnostic device adapters
-- declarative automation rules
-
-The goal is a resilient automation system suitable for environments
-with unreliable infrastructure.
+Runs on low-power hardware including OpenWrt routers. Configured via a
+declarative TOML rule DSL.
 
 ---
 
-## Key Design Principles
+## The Problem
 
-**Local-first automation**
+Most smart home systems stop working when the internet goes down or power cuts.
+Automations halt. Devices are left in unknown states. The homeowner has to
+intervene manually.
 
-The system never depends on cloud connectivity. All rules, device state,
-and event processing happen locally.
-
-**WAL before action**
-
-Every event is persisted to a write-ahead log before the rule engine
-executes automation actions. This guarantees deterministic recovery
-after crashes or power failures.
-
-**State confidence decay**
-
-Device state becomes less trustworthy over time. If a sensor stops
-reporting, the daemon marks its state as *unknown* rather than
-continuing to trust stale values.
-
-**Safe fallback states**
-
-When devices become unreachable the daemon applies configured
-safe states instead of leaving actuators in an unknown condition.
-
-**Hot-reloadable automation rules**
-
-Rules are defined in TOML and can be reloaded at runtime using
-`SIGUSR1` without restarting the daemon.
+In environments with frequent power outages and unreliable connectivity, this
+is not an edge case — it is the normal operating condition.
 
 ---
 
-## Example Automation
+## What 2red2blue Does Differently
 
-Turn off hallway lights 2 minutes after motion stops:
+**Continues operating without internet**
+All rules, device state, and event processing happen locally. Internet
+connectivity is never required.
 
+**Recovers correctly after a power cut**
+Every event is written to a WAL before the rule engine acts on it. On boot,
+the daemon replays its log, reconciles desired vs actual device state, and
+issues correction commands — automatically, within seconds.
+
+**Knows what it doesn't know**
+Device state carries a confidence score that decays when a device goes silent.
+Below the confidence threshold, the daemon applies safe defaults rather than
+acting on stale state.
+
+**Hot-reloadable rules**
+Automation rules are defined in TOML and reloaded at runtime via `SIGUSR1`
+without restarting the daemon.
+
+---
+
+## Example Rule
 ```toml
 [[rules]]
-name = "motion-timeout"
-trigger = { type = "state_change", device = "motion_sensor_hallway", field = "occupancy" }
-condition = { field = "occupancy", operator = "eq", value = false }
-delay_secs = 120
-actions = [
-  { type = "set_state", device = "light_hallway", field = "state", value = "off" }
+name        = "power-recovery-gate"
+trigger     = { type = "state_change", device = "mains_power", field = "source" }
+condition   = { field = "source", operator = "eq", value = "kplc" }
+actions     = [
+  { type = "set_state", device = "main_gate",      field = "state", value = "locked" },
+  { type = "set_state", device = "security_lights", field = "state", value = "on"    },
 ]
 ```
 
-Additional rule examples can be found in:
-
-[`docs/technical-design/rule-dsl/examles`](./docs/technical-design/rule-dsl/examples)
+Additional examples: [`docs/technical-design/rule-dsl/examples`](./docs/technical-design/rule-dsl/examples)
 
 ---
 
 ## Architecture
-
 ```
-adapters → ingestor → WAL → state engine → rule engine → dispatcher
+adapters → ingestor → WAL → state engine → rule engine → resolver → dispatcher
                                 ↓
-                         conflict resolver
+                          reconciler (boot + continuous)
 ```
 
 | Layer | Responsibility |
 |-------|----------------|
-| `adapters` | Device protocol drivers (Zigbee2MQTT, Home Assistant, mock) |
-| `kernel` | Ingestor, WAL, state engine, rule engine, conflict resolver, dispatcher |
+| `adapters` | Device protocol drivers (Home Assistant, mock) |
+| `kernel` | Ingestor, WAL, state engine, rule engine, conflict resolver, dispatcher, reconciler |
 | `daemon` | Main loop — wires the pipeline, manages lifecycle |
-| `platform` | Linux / OpenWrt abstraction, signal handling, watchdog |
 | `ui` | HTTP server for live state inspection |
 
 ---
 
-## Running
+## Status
 
+| Component | Status |
+|-----------|--------|
+| WAL with durability tiers | ✓ complete |
+| State engine + confidence decay | ✓ complete |
+| Rule engine + TOML DSL | ✓ complete |
+| Conflict resolver + dispatcher | ✓ complete |
+| Boot + continuous reconciliation | ✓ complete |
+| Local web dashboard | ✓ complete |
+| Mock adapter | ✓ complete |
+| Home Assistant adapter | in progress |
+| Pilot hardening | planned |
+
+---
+
+## Running
 ```bash
 cargo build --release
 cargo run --bin daemon -- config.toml
@@ -117,37 +107,16 @@ kill -USR1 $(pidof daemon)
 
 ---
 
-## MVP Status
-
-| Component | Status |
-|-----------|--------|
-| WAL | ✓ complete |
-| State engine + confidence decay | ✓ complete |
-| Rule engine | ✓ complete |
-| Conflict resolver + dispatcher | ✓ complete |
-| Mock adapter | ✓ complete |
-| Zigbee2MQTT adapter | planned |
-| Home Assistant adapter | in progress |
-| Boot reconciliation | ✓ complete |
-| UI | ✓ complete |
-
----
-
 ## Design Documentation
 
-The project includes **48 technical design documents** covering the
-internal architecture and design decisions:
+48 technical design documents covering architecture decisions, component
+specifications, and the rule DSL:
 
-- rule DSL specification
-- state engine data model
-- adapter interface design
-- conflict resolution strategy
-- platform abstraction layer
+- WAL design and durability model
+- State engine and confidence decay
+- Rule DSL specification and examples
+- Conflict resolution strategy
+- Boot reconciliation sequence
+- Adapter interface contract
 
-See: [`docs/technical-design/`](./docs/technical-design)
-
----
-
-## License
-
-MIT
+[`docs/technical-design/`](./docs/technical-design)
