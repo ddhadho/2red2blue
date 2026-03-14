@@ -3,23 +3,32 @@ use kernel::types::{RawDeviceEvent, AdapterCommand};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AdapterError {
-    #[error("Connection failed: {0}")]
+    #[error("connection failed: {0}")]
     ConnectionFailed(String),
-    
-    #[error("Disconnected")]
+
+    #[error("disconnected")]
     Disconnected,
-    
-    #[error("Timeout")]
+
+    #[error("timeout")]
     Timeout,
-    
-    #[error("Device not found: {0}")]
+
+    #[error("device not found: {0}")]
     DeviceNotFound(String),
-    
-    #[error("Command rejected: {0}")]
+
+    #[error("command rejected: {0}")]
     CommandRejected(String),
-    
-    #[error("Parse error: {0}")]
+
+    #[error("parse error: {0}")]
     ParseError(String),
+
+    #[error("transport error: {0}")]
+    Transport(String),
+
+    #[error("authentication failed: {0}")]
+    Auth(String),
+
+    #[error("not connected: {0}")]
+    NotConnected(String),
 }
 
 #[async_trait]
