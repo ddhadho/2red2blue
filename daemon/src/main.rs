@@ -18,7 +18,9 @@ use kernel::reconciler::{boot_reconcile, continuous_reconcile};
 use kernel::types::{
     AdapterCommand, Command, Event, EventKind, EventSource, Value,
 };
+
 use adapters::mock::MockAdapter;
+use adapters::ha::HaAdapter;
 use adapters::traits::DeviceAdapter;
 
 #[tokio::main]
@@ -160,8 +162,18 @@ async fn main() -> anyhow::Result<()> {
     let (cmd_tx,     mut cmd_rx)     = tokio::sync::mpsc::channel::<AdapterCommand>(32);
     let (confirm_tx, mut confirm_rx) = tokio::sync::mpsc::channel::<String>(32);
 
-    let mut adapter = MockAdapter::new(confirm_tx);
-    adapter.connect().await?;
+    let mut adapter: Box<dyn DeviceAdapter + Send> = match config.adapter.kind.as_str() {
+        "homeassistant" => {
+            let ha_cfg = config.home_assistant.clone()
+                .context("home_assistant config required")?;
+            Box::new(HaAdapter::new(ha_cfg, confirm_tx))
+        }
+        _ => {
+            let mut a = MockAdapter::new(confirm_tx.clone());
+            a.connect().await.context("mock adapter connect failed")?;
+            Box::new(a)
+        }
+    };
 
     tokio::spawn(async move {
         loop {
@@ -169,11 +181,14 @@ async fn main() -> anyhow::Result<()> {
                 result = adapter.next_event() => {
                     match result {
                         Ok(event) => {
-                            if event_tx.send(event).await.is_err() { break; }
+                            if event_tx.send(event).await.is_err() { return; }
                         }
                         Err(e) => {
-                            tracing::error!(error = %e, "adapter error");
-                            break;
+                            tracing::error!(error = %e, "adapter error — reconnecting in 5s");
+                            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                            if let Err(e) = adapter.connect().await {
+                                tracing::error!(error = %e, "reconnect failed — retrying");
+                            }
                         }
                     }
                 }
@@ -183,9 +198,6 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-        }
-        if let Err(e) = adapter.disconnect().await {
-            tracing::error!(error = %e, "adapter disconnect failed");
         }
     });
 
