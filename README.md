@@ -120,3 +120,47 @@ specifications, and the rule DSL:
 - Adapter interface contract
 
 [`docs/technical-design/`](./docs/technical-design)
+
+---
+
+# V1 Goal
+
+Prove the core guarantee in a real home.
+
+**The daemon works correctly after a power cut, without internet, without manual intervention.**
+
+## What V1 must demonstrate
+
+- Connects to HA on boot
+- Loads rules and device state
+- When power cuts and restores, the recovery sequence fires correctly
+- Pilot home devices work automatically  
+- The homeowner does nothing
+
+## Why each component exists
+
+| Component | Why it exists in V1 |
+|-----------|---------------------|
+| WAL | State survives a crash or power cut |
+| Boot reconciliation | Home is in the right state after reboot |
+| Confidence decay | System doesn't act on stale state |
+| HA adapter | Connects the daemon to real devices |
+| Rules engine | Encodes the recovery sequence declaratively |
+| Conflict resolver | Prevents contradictory commands to the same device |
+
+## What V1 is not trying to achieve
+
+- Device discovery
+- Mobile app
+- Multiple homes
+- OpenWrt deployment
+- Tests
+- Polished UI
+- Native device adapters
+
+## What success looks like
+
+One home. Thirty days. Power cuts and restores correctly, automatically,
+every time. The homeowner never intervenes.
+
+That proof earns the right to build V2.
