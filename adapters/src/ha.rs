@@ -307,7 +307,6 @@ impl DeviceAdapter for HaAdapter {
                             // For a pilot with one device this is fine.
                             // TODO: buffer and drain for multi-device deployments.
                             if let Some(first) = events.into_iter().next() {
-                                backoff_secs = 1; // reset on successful connect
                                 return Ok(first);
                             }
                         }
