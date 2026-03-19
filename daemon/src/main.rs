@@ -253,7 +253,6 @@ async fn main() -> anyhow::Result<()> {
             reconcile_commands,
             &resolver,
             &mut dispatcher,
-            &cmd_tx,
             &mut wal,
             &shared,
         ).await?;
@@ -329,7 +328,6 @@ async fn main() -> anyhow::Result<()> {
                         candidates,
                         &resolver,
                         &mut dispatcher,
-                        &cmd_tx,
                         &mut wal,
                         &shared,
                     ).await?;
@@ -359,7 +357,6 @@ async fn main() -> anyhow::Result<()> {
                         timer_cmds,
                         &resolver,
                         &mut dispatcher,
-                        &cmd_tx,
                         &mut wal,
                         &shared,
                     ).await?;
@@ -375,7 +372,6 @@ async fn main() -> anyhow::Result<()> {
                         recon_cmds,
                         &resolver,
                         &mut dispatcher,
-                        &cmd_tx,
                         &mut wal,
                         &shared,
                     ).await?;
@@ -467,7 +463,6 @@ async fn dispatch_resolved(
     candidates: Vec<Command>,
     resolver: &ConflictResolver,
     dispatcher: &mut CommandDispatcher,
-    cmd_tx: &tokio::sync::mpsc::Sender<AdapterCommand>,
     wal: &mut Wal,
     shared: &Arc<Mutex<SharedState>>,
 ) -> anyhow::Result<()> {
@@ -509,7 +504,6 @@ async fn dispatch_resolved(
 
     for command in resolved.winners {
         dispatcher.enqueue(command.clone());
-        send_to_adapter(&command, cmd_tx, dispatcher);
     }
 
     Ok(())
