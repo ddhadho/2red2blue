@@ -14,7 +14,7 @@ snapshot_interval_events = 1000
 
 [adapter]
 kind = "homeassistant"
-url = "ws://172.28.174.123:8123/api/websocket"
+url = "ws://127.0.0.1:8123/api/websocket"
 reconnect_interval_seconds = 5
 event_dedup_window_ms = 50
 
@@ -41,7 +41,7 @@ watchdog_interval_seconds = 30
 max_memory_mb = 256
 
 [home_assistant]
-url = "http://172.28.174.123:8123"
+url = "http://127.0.0.1:8123"
 token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJhMGM3MzBiYjExZTI0MTEzYWRlOTZjYmNkZjU4ZTFiMiIsImlhdCI6MTc3MzIzNzk3MCwiZXhwIjoyMDg4NTk3OTcwfQ.P6VAZjrdS65YZGYrq2C11-65lQIhpQVBzGv5viKcMcY"
 
 [[home_assistant.devices]]
