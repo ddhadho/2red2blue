@@ -11,6 +11,12 @@ pub struct RuleEngine {
     rule_states: HashMap<String, RuleState>,
 }
 
+impl Default for RuleEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RuleEngine {
     pub fn new() -> Self {
         Self {

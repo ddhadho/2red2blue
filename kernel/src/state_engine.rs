@@ -44,8 +44,8 @@ impl StateEngine {
     pub fn apply_event(&mut self, event: &Event) -> StateUpdate {
         let mut changed = vec![];
 
-        if let EventKind::DeviceStateChanged = &event.kind {
-            if let EventSource::Device(device_id) = &event.source {
+        if let EventKind::DeviceStateChanged = &event.kind
+            && let EventSource::Device(device_id) = &event.source {
                 let attribute = event.payload
                     .get("attribute")
                     .and_then(|v| if let Value::Text(s) = v {
@@ -75,7 +75,6 @@ impl StateEngine {
                     }
                 }
             }
-        }
 
         StateUpdate {
             changed_devices: changed,

@@ -41,6 +41,12 @@ pub struct ResolvedCommands {
 
 pub struct ConflictResolver;
 
+impl Default for ConflictResolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConflictResolver {
     pub fn new() -> Self {
         Self

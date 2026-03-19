@@ -212,11 +212,10 @@ impl Wal {
         if self.buffer_bytes >= self.config.buffer_max_bytes {
             return true;
         }
-        if let Ok(elapsed) = self.buffer_since.elapsed() {
-            if elapsed >= Duration::from_secs(self.config.buffer_max_age_secs) {
+        if let Ok(elapsed) = self.buffer_since.elapsed()
+            && elapsed >= Duration::from_secs(self.config.buffer_max_age_secs) {
                 return true;
             }
-        }
         false
     }
 

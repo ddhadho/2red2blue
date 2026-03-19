@@ -386,9 +386,9 @@ impl DeviceAdapter for HaAdapter {
 
             // ── Confirmation check ────────────────────────────────────────────
 
-            if let Some(expected) = self.pending_expected.get(entity_id) {
-                if &mapped_value_str == expected {
-                    if let Some(command_id) = self.pending_confirmations.remove(entity_id) {
+            if let Some(expected) = self.pending_expected.get(entity_id)
+                && &mapped_value_str == expected
+                    && let Some(command_id) = self.pending_confirmations.remove(entity_id) {
                         self.pending_expected.remove(entity_id);
                         tracing::info!(
                             entity_id  = %entity_id,
@@ -397,8 +397,6 @@ impl DeviceAdapter for HaAdapter {
                         );
                         self.confirm_tx.try_send(command_id).ok();
                     }
-                }
-            }
 
             // ── Emit state event ──────────────────────────────────────────────
 

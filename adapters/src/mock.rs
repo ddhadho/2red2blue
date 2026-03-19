@@ -97,7 +97,7 @@ impl DeviceAdapter for MockAdapter {
             }
 
             _ => {
-                let state = if self.tick % 2 == 0 { "open" } else { "closed" };
+                let state = if self.tick.is_multiple_of(2) { "open" } else { "closed" };
                 RawDeviceEvent {
                     external_id: "switch.main_gate".to_string(),
                     attribute: "state".to_string(),
