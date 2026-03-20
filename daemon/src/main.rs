@@ -158,7 +158,7 @@ async fn main() -> anyhow::Result<()> {
     // Sending them through event_tx → ingestor would cause them to be
     // dropped (ingestor only resolves known device external_ids).
 
-    let (event_tx,   mut event_rx)   = tokio::sync::mpsc::channel::<kernel::types::RawDeviceEvent>(32);
+    let (event_tx,   mut event_rx)   = tokio::sync::mpsc::channel::<kernel::types::RawDeviceEvent>(256);
     let (cmd_tx,     mut cmd_rx)     = tokio::sync::mpsc::channel::<AdapterCommand>(32);
     let (confirm_tx, mut confirm_rx) = tokio::sync::mpsc::channel::<String>(32);
 
@@ -166,7 +166,10 @@ async fn main() -> anyhow::Result<()> {
         "homeassistant" => {
             let ha_cfg = config.home_assistant.clone()
                 .context("home_assistant config required")?;
-            Box::new(HaAdapter::new(ha_cfg, confirm_tx))
+            let mut a = HaAdapter::new(ha_cfg, confirm_tx.clone());
+            a.connect().await.context("HA adapter connect failed")?;
+            a.start_poll_loop(event_tx.clone());
+            Box::new(a)
         }
         _ => {
             let mut a = MockAdapter::new(confirm_tx.clone());

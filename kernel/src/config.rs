@@ -78,6 +78,7 @@ pub struct PlatformConfig {
 pub struct HaConfig {
     pub url:     String,
     pub token:   String,
+    pub poll_interval_seconds: u64, 
     pub devices: Vec<HaDeviceConfig>,
 }
 

@@ -238,6 +238,81 @@ impl HaAdapter {
         );
         Ok(events)
     }
+
+    /// Spawns a poll loop that fetches all configured entity states from HA
+    /// every poll_interval_seconds and feeds them into event_tx.
+    /// This resets confidence on devices that are healthy but silent —
+    /// input_booleans, sensors that only report on change, etc.
+    /// Call once from main after connect().
+    pub fn start_poll_loop(&self, event_tx: mpsc::Sender<RawDeviceEvent>) {
+        let config   = self.config.clone();
+        let http     = self.http.clone();
+        let interval = config.poll_interval_seconds;
+
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(
+                tokio::time::Duration::from_secs(interval)
+            );
+            ticker.set_missed_tick_behavior(
+                tokio::time::MissedTickBehavior::Skip
+            );
+
+            // Skip the first tick — connect() already called fetch_initial_states()
+            ticker.tick().await;
+
+            loop {
+                ticker.tick().await;
+
+                let url = format!("{}/api/states", config.url.trim_end_matches('/'));
+
+                let result = http
+                    .get(&url)
+                    .header("Authorization", format!("Bearer {}", config.token))
+                    .header("Content-Type", "application/json")
+                    .send()
+                    .await;
+
+                let all: Vec<HaStateRest> = match result {
+                    Ok(resp) => match resp.json().await {
+                        Ok(v)  => v,
+                        Err(e) => {
+                            tracing::warn!(error = %e, "HA poll — failed to parse /api/states");
+                            continue;
+                        }
+                    },
+                    Err(e) => {
+                        tracing::warn!(error = %e, "HA poll — /api/states request failed");
+                        continue;
+                    }
+                };
+
+                let entity_map: HashMap<&str, &HaDeviceConfig> = config
+                    .devices
+                    .iter()
+                    .map(|d| (d.ha_entity_id.as_str(), d))
+                    .collect();
+
+                let mut sent = 0usize;
+                for ha in &all {
+                    if let Some(device_cfg) = entity_map.get(ha.entity_id.as_str()) {
+                        let state = HaState {
+                            state:        ha.state.clone(),
+                            attributes:   ha.attributes.clone(),
+                            last_changed: ha.last_changed.clone(),
+                        };
+                        if let Some(ev) = map_state_to_event(&state, device_cfg) {
+                            if event_tx.send(ev).await.is_err() {
+                                return; // main loop dropped — stop polling
+                            }
+                            sent += 1;
+                        }
+                    }
+                }
+
+                tracing::debug!(sent, "HA poll complete");
+            }
+        });
+    }
 }
 
 // ── DeviceAdapter ─────────────────────────────────────────────────────────────
