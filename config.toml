@@ -4,11 +4,11 @@ log_level = "info"
 log_output = "stdout"
 
 [storage]
-wal_path = "/tmp/smarthome/wal"
-snapshot_path = "/tmp/smarthome/snapshots"
-rules_path = "/tmp/smarthome/rules.toml"
-devices_path = "/tmp/smarthome/devices.toml"
-desired_state_path = "/tmp/smarthome/desired_state.json"
+wal_path           = "/var/lib/smarthome/wal"
+snapshot_path      = "/var/lib/smarthome/snapshots"
+rules_path         = "/etc/smarthome/rules.toml"
+devices_path       = "/etc/smarthome/devices.toml"
+desired_state_path = "/var/lib/smarthome/desired_state.json"
 max_wal_size_mb = 512
 snapshot_interval_events = 1000
 
@@ -43,6 +43,7 @@ max_memory_mb = 256
 [home_assistant]
 url = "http://127.0.0.1:8123"
 token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJhMGM3MzBiYjExZTI0MTEzYWRlOTZjYmNkZjU4ZTFiMiIsImlhdCI6MTc3MzIzNzk3MCwiZXhwIjoyMDg4NTk3OTcwfQ.P6VAZjrdS65YZGYrq2C11-65lQIhpQVBzGv5viKcMcY"
+poll_interval_seconds = 30
 
 [[home_assistant.devices]]
 ha_entity_id     = "input_boolean.main_gate"
