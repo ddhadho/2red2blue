@@ -61,11 +61,17 @@ impl EventIngestor {
             Value::Text(device_id.0.clone()),
         );
 
+        let source = match raw.source {
+            EventSource::Poll => EventSource::Poll,
+            _ => EventSource::Device(device_id),
+        };
+
         let mut event = Event::new(
-            EventSource::Device(device_id),
+            source,
             EventKind::DeviceStateChanged,
             payload,
         );
+        
         event.sequence = self.sequence;
 
         debug!(sequence = event.sequence, "event ingested");
