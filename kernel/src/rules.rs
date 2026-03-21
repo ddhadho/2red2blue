@@ -108,6 +108,9 @@ impl RuleEngine {
         state: &HashMap<DeviceId, DeviceState>,
         now: SystemTime,
     ) -> Vec<Command> {
+        if matches!(update.source, EventSource::Poll) {
+            return vec![];
+        }       
         let now_ms = to_ms(now);
         let mut commands = vec![];
 
