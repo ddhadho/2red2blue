@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use kernel::types::{RawDeviceEvent, AdapterCommand, Value};
+use kernel::types::{RawDeviceEvent, AdapterCommand, Value, EventSource};
 use tokio::sync::mpsc;
 use tracing::info;
 use crate::traits::{AdapterError, DeviceAdapter};
@@ -70,6 +70,7 @@ impl DeviceAdapter for MockAdapter {
                     attribute: "source".to_string(),
                     value: Value::Text("outage".to_string()),
                     timestamp: now_ms(),
+                    source: EventSource::Adapter,
                     raw: serde_json::json!({"state": "outage"}),
                 }
             }
@@ -81,6 +82,7 @@ impl DeviceAdapter for MockAdapter {
                     attribute: "source".to_string(),
                     value: Value::Text("outage".to_string()),
                     timestamp: now_ms(),
+                    source: EventSource::Adapter,
                     raw: serde_json::json!({"state": "outage"}),
                 }
             }
@@ -92,6 +94,7 @@ impl DeviceAdapter for MockAdapter {
                     attribute: "source".to_string(),
                     value: Value::Text("kplc".to_string()),
                     timestamp: now_ms(),
+                    source: EventSource::Adapter,
                     raw: serde_json::json!({"state": "kplc"}),
                 }
             }
@@ -103,6 +106,7 @@ impl DeviceAdapter for MockAdapter {
                     attribute: "state".to_string(),
                     value: Value::Text(state.to_string()),
                     timestamp: now_ms(),
+                    source: EventSource::Adapter,
                     raw: serde_json::json!({
                         "entity_id": "switch.main_gate",
                         "state": state,
