@@ -94,6 +94,8 @@ pub enum EventSource {
     System,
     Rule(RuleId),
     User,
+    Poll,
+    Adapter,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,6 +260,7 @@ impl DeviceState {
 #[derive(Debug, Clone)]
 pub struct StateUpdate {
     pub changed_devices: Vec<DeviceId>,
+    pub source: EventSource,
 }
 
 // ── State Mismatch ────────────────────────────────────────────
@@ -334,6 +337,7 @@ pub struct RawDeviceEvent {
     pub value: Value,
     pub timestamp: u64,
     pub raw: serde_json::Value,
+    pub source: EventSource,
 }
 
 #[derive(Debug, Clone)]
