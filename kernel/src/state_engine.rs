@@ -44,8 +44,17 @@ impl StateEngine {
     pub fn apply_event(&mut self, event: &Event) -> StateUpdate {
         let mut changed = vec![];
 
-        if let EventKind::DeviceStateChanged = &event.kind
-            && let EventSource::Device(device_id) = &event.source {
+        if let EventKind::DeviceStateChanged = &event.kind {
+            let device_id = match &event.source {
+                EventSource::Device(id) => Some(id.clone()),
+                EventSource::Poll       => event.payload
+                    .get("device_id")
+                    .and_then(|v| if let Value::Text(s) = v { Some(s) } else { None })
+                    .map(|s| DeviceId(s.clone())),
+                _ => None,
+            };
+
+            if let Some(device_id) = device_id {
                 let attribute = event.payload
                     .get("attribute")
                     .and_then(|v| if let Value::Text(s) = v {
@@ -55,7 +64,7 @@ impl StateEngine {
                 let value = event.payload.get("value").cloned();
 
                 if let (Some(attr), Some(val)) = (attribute, value) {
-                    if let Some(state) = self.devices.get_mut(device_id) {
+                    if let Some(state) = self.devices.get_mut(&device_id) {
                         let now = SystemTime::now();
                         state.update_actual(attr.clone(), val.clone(), now);
                         changed.push(device_id.clone());
@@ -75,9 +84,11 @@ impl StateEngine {
                     }
                 }
             }
+        }
 
         StateUpdate {
             changed_devices: changed,
+            source:          event.source.clone(),
         }
     }
 
