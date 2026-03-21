@@ -12,7 +12,7 @@ use tokio_tungstenite::{
 };
 
 use kernel::config::{HaConfig, HaDeviceConfig};
-use kernel::types::{AdapterCommand, RawDeviceEvent, Value};
+use kernel::types::{AdapterCommand, RawDeviceEvent, Value, EventSource};
 
 use crate::traits::{AdapterError, DeviceAdapter};
 
@@ -300,7 +300,8 @@ impl HaAdapter {
                             attributes:   ha.attributes.clone(),
                             last_changed: ha.last_changed.clone(),
                         };
-                        if let Some(ev) = map_state_to_event(&state, device_cfg) {
+                        if let Some(mut ev) = map_state_to_event(&state, device_cfg) {
+                            ev.source = EventSource::Poll;
                             if event_tx.send(ev).await.is_err() {
                                 return; // main loop dropped — stop polling
                             }
@@ -482,6 +483,7 @@ impl DeviceAdapter for HaAdapter {
                 attribute:   device_cfg.attribute.clone(),
                 value:       Value::Text(mapped_value_str),
                 timestamp,
+                source:      EventSource::Adapter,
                 raw: serde_json::json!({
                     "entity_id": entity_id,
                     "state":     new_state.state,
@@ -639,6 +641,7 @@ fn map_state_to_event(ha_state: &HaState, device_cfg: &HaDeviceConfig) -> Option
         attribute:   device_cfg.attribute.clone(),
         value:       Value::Text(mapped),
         timestamp:   now_ms(),
+        source:      EventSource::Adapter,
         raw: serde_json::json!({
             "entity_id": device_cfg.ha_entity_id,
             "state":     ha_state.state,
