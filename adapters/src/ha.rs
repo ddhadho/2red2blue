@@ -640,7 +640,11 @@ fn map_state_to_event(ha_state: &HaState, device_cfg: &HaDeviceConfig) -> Option
         external_id: device_cfg.device_id.clone(),
         attribute:   device_cfg.attribute.clone(),
         value:       Value::Text(mapped),
-        timestamp:   now_ms(),
+        timestamp: ha_state.last_changed
+            .as_deref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.timestamp_millis() as u64)
+            .unwrap_or_else(now_ms),
         source:      EventSource::Adapter,
         raw: serde_json::json!({
             "entity_id": device_cfg.ha_entity_id,
