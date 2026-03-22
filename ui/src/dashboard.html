@@ -40,7 +40,6 @@
     line-height: 1.5;
   }
 
-  /* ── Header ── */
   header {
     display: flex;
     align-items: center;
@@ -104,11 +103,8 @@
     letter-spacing: 0.05em;
   }
 
-  .uptime span {
-    color: var(--yellow);
-  }
+  .uptime span { color: var(--yellow); }
 
-  /* ── Layout ── */
   .grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -118,16 +114,9 @@
     border-top: none;
   }
 
-  .panel {
-    background: var(--bg-panel);
-    padding: 0;
-  }
+  .panel { background: var(--bg-panel); padding: 0; }
+  .panel.full-width { grid-column: 1 / -1; }
 
-  .panel.full-width {
-    grid-column: 1 / -1;
-  }
-
-  /* ── Panel header ── */
   .panel-header {
     display: flex;
     align-items: center;
@@ -154,7 +143,6 @@
     border-radius: 2px;
   }
 
-  /* ── Panel body ── */
   .panel-body {
     padding: 12px 16px;
     max-height: 340px;
@@ -168,25 +156,33 @@
   /* ── Device cards ── */
   .device-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 8px;
   }
 
   .device-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
+    border-left: 3px solid var(--border);
     padding: 10px 12px;
     border-radius: 2px;
     transition: border-color 0.2s;
   }
 
-  .device-card:hover {
-    border-color: var(--border-hi);
-  }
+  .device-card:hover { border-color: var(--border-hi); }
 
+  /* Left accent bar by confidence */
+  .device-card.conf-high    { border-left-color: var(--green); }
+  .device-card.conf-mid     { border-left-color: var(--yellow); }
+  .device-card.conf-low     { border-left-color: var(--orange); }
+  .device-card.conf-dead    { border-left-color: var(--red); }
+
+  /* Border override for mismatch / safe-default */
   .device-card.state-mismatch { border-color: var(--orange); }
-  .device-card.state-unknown  { border-color: var(--red);    box-shadow: 0 0 6px rgba(255,61,90,0.15); }
-  .device-card.state-ok       { border-color: var(--border); }
+  .device-card.state-safe-default {
+    border-color: var(--red);
+    box-shadow: 0 0 8px rgba(255,61,90,0.18);
+  }
 
   .device-id {
     font-size: 11px;
@@ -242,25 +238,35 @@
     font-size: 9px;
   }
 
-  .state-value {
-    color: var(--text-hi);
-    font-size: 11px;
+  .state-value         { color: var(--text-hi);  font-size: 11px; }
+  .state-value.desired { color: var(--blue); }
+  .state-value.mismatch{ color: var(--yellow); }
+  .state-value.stale   { color: var(--text-dim); font-style: italic; font-size: 10px; }
+
+  /* Safe default pill */
+  .safe-default-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    font-family: var(--sans);
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--red);
+    background: var(--red-dim);
+    border: 1px solid rgba(255,61,90,0.25);
+    padding: 1px 5px;
+    border-radius: 1px;
+    margin-bottom: 6px;
   }
 
-  .state-value.desired {
-    color: var(--blue);
+  .safe-default-badge::before {
+    content: '⚠';
+    font-size: 8px;
   }
 
-  .state-value.mismatch {
-    color: var(--yellow);
-  }
-
-  .state-value.unknown {
-    color: var(--text-dim);
-    font-style: italic;
-  }
-
-  /* ── Table rows (commands, conflicts, rules) ── */
+  /* ── Table rows ── */
   .log-row {
     display: grid;
     gap: 0 12px;
@@ -270,22 +276,10 @@
   }
 
   .log-row:last-child { border-bottom: none; }
-
-  .log-row.cmd-row {
-    grid-template-columns: 1fr 80px 60px 40px;
-  }
-
-  .log-row.conflict-row {
-    grid-template-columns: 80px 1fr 1fr;
-  }
-
-  .log-row.rule-row {
-    grid-template-columns: 16px 1fr 40px 80px;
-  }
-
-  .log-row.inflight-row {
-    grid-template-columns: 1fr 80px 60px;
-  }
+  .log-row.cmd-row      { grid-template-columns: 1fr 80px 60px 40px; }
+  .log-row.conflict-row { grid-template-columns: 80px 1fr 1fr; }
+  .log-row.rule-row     { grid-template-columns: 16px 1fr 40px 80px; }
+  .log-row.inflight-row { grid-template-columns: 1fr 80px 60px; }
 
   .col-label {
     font-size: 9px;
@@ -295,16 +289,10 @@
     margin-bottom: 2px;
   }
 
-  .col-value {
-    font-size: 11px;
-    color: var(--text-hi);
-    word-break: break-all;
-  }
+  .col-value           { font-size: 11px; color: var(--text-hi); word-break: break-all; }
+  .col-value.dim       { color: var(--text-dim); }
+  .col-value.mono      { font-family: var(--mono); }
 
-  .col-value.dim { color: var(--text-dim); }
-  .col-value.mono { font-family: var(--mono); }
-
-  /* ── Status badges ── */
   .badge {
     display: inline-block;
     font-size: 9px;
@@ -328,7 +316,7 @@
   .badge.delayed  { background: var(--yellow-dim); color: var(--yellow); }
   .badge.timeout  { background: var(--red-dim);    color: var(--orange); }
 
-  /* ── Reconciliation panel ── */
+  /* ── Reconciliation ── */
   .recon-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -337,10 +325,7 @@
     margin-bottom: 12px;
   }
 
-  .recon-stat {
-    background: var(--bg-card);
-    padding: 12px 14px;
-  }
+  .recon-stat { background: var(--bg-card); padding: 12px 14px; }
 
   .recon-stat-val {
     font-family: var(--sans);
@@ -372,12 +357,7 @@
 
   .recon-meta span { color: var(--text); }
 
-  .unreachable-list {
-    margin-top: 8px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
+  .unreachable-list { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
 
   .unreachable-tag {
     font-size: 10px;
@@ -387,7 +367,6 @@
     border-radius: 1px;
   }
 
-  /* ── Empty state ── */
   .empty {
     padding: 20px 0;
     text-align: center;
@@ -396,21 +375,9 @@
     letter-spacing: 0.1em;
   }
 
-  /* ── Error / loading ── */
-  .status-line {
-    font-size: 10px;
-    color: var(--text-dim);
-    padding: 6px 0;
-    letter-spacing: 0.05em;
-  }
+  .status-line { font-size: 10px; color: var(--text-dim); padding: 6px 0; letter-spacing: 0.05em; }
+  .error-line  { font-size: 10px; color: var(--red); padding: 6px 0; }
 
-  .error-line {
-    font-size: 10px;
-    color: var(--red);
-    padding: 6px 0;
-  }
-
-  /* ── Column headers ── */
   .col-headers {
     display: grid;
     gap: 0 12px;
@@ -419,17 +386,12 @@
     margin-bottom: 4px;
   }
 
-  .col-headers.cmd-row    { grid-template-columns: 1fr 80px 60px 40px; }
+  .col-headers.cmd-row      { grid-template-columns: 1fr 80px 60px 40px; }
   .col-headers.conflict-row { grid-template-columns: 80px 1fr 1fr; }
-  .col-headers.rule-row   { grid-template-columns: 16px 1fr 40px 80px; }
+  .col-headers.rule-row     { grid-template-columns: 16px 1fr 40px 80px; }
   .col-headers.inflight-row { grid-template-columns: 1fr 80px 60px; }
 
-  .ch {
-    font-size: 9px;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: var(--text-dim);
-  }
+  .ch { font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-dim); }
 </style>
 </head>
 <body>
@@ -448,7 +410,6 @@
 
 <div class="grid">
 
-  <!-- ── Devices ── -->
   <div class="panel full-width">
     <div class="panel-header">
       <span class="panel-title">Device State</span>
@@ -461,7 +422,6 @@
     </div>
   </div>
 
-  <!-- ── Commands ── -->
   <div class="panel">
     <div class="panel-header">
       <span class="panel-title">Commands</span>
@@ -478,7 +438,6 @@
     </div>
   </div>
 
-  <!-- ── Conflicts ── -->
   <div class="panel">
     <div class="panel-header">
       <span class="panel-title">Conflicts</span>
@@ -494,7 +453,6 @@
     </div>
   </div>
 
-  <!-- ── Rules ── -->
   <div class="panel">
     <div class="panel-header">
       <span class="panel-title">Rules</span>
@@ -511,7 +469,6 @@
     </div>
   </div>
 
-  <!-- ── In-flight ── -->
   <div class="panel">
     <div class="panel-header">
       <span class="panel-title">In-Flight</span>
@@ -527,7 +484,6 @@
     </div>
   </div>
 
-  <!-- ── Reconciliation ── -->
   <div class="panel full-width">
     <div class="panel-header">
       <span class="panel-title">Last Boot Reconciliation</span>
@@ -541,6 +497,7 @@
 
 <script>
 const POLL_MS = 2000;
+const UNKNOWN_THRESHOLD = 0.2; // must match reconciler.confidence_unknown_threshold in config.toml
 
 let bootTime = null;
 
@@ -559,9 +516,6 @@ function tickUptime() {
   el('uptime').textContent = formatUptime(Date.now() - bootTime);
 }
 
-
-// ── Utilities ────────────────────────────────────────────────
-
 function el(id) { return document.getElementById(id); }
 
 function ts(ms) {
@@ -572,7 +526,7 @@ function ts(ms) {
 function countdown(ms) {
   const diff = Math.max(0, ms - Date.now());
   const s = Math.floor(diff / 1000);
-  if (s < 60)  return s + 's';
+  if (s < 60)   return s + 's';
   if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60) + 's';
   return Math.floor(s/3600) + 'h';
 }
@@ -584,10 +538,16 @@ function confColor(v) {
   return 'var(--red)';
 }
 
+function confClass(v) {
+  if (v >= 0.8) return 'conf-high';
+  if (v >= 0.5) return 'conf-mid';
+  if (v >= 0.2) return 'conf-low';
+  return 'conf-dead';
+}
+
 function valueStr(v) {
   if (v === null || v === undefined) return '—';
   if (typeof v === 'object') {
-    // Value enum: {Text: "x"} | {Float: 1.0} | {Int: 1} | {Bool: true}
     const k = Object.keys(v)[0];
     return String(v[k]);
   }
@@ -598,7 +558,26 @@ function badge(cls, text) {
   return `<span class="badge ${cls}">${text}</span>`;
 }
 
-// ── Renderers ────────────────────────────────────────────────
+// ── get_effective ─────────────────────────────────────────────────────────────
+//
+// Mirrors the Rust get_effective() logic:
+//   conf <= UNKNOWN_THRESHOLD → safe default (if set)
+//   otherwise                 → actual value
+//
+// Returns { value, isSafeDefault }
+
+function getEffective(attr, actual, conf, safeDefault) {
+  if (conf <= UNKNOWN_THRESHOLD) {
+    const sd = safeDefault && safeDefault[attr] !== undefined
+      ? valueStr(safeDefault[attr])
+      : null;
+    if (sd !== null) return { value: sd, isSafeDefault: true };
+  }
+  const v = actual && actual[attr] !== undefined ? valueStr(actual[attr]) : null;
+  return { value: v || '—', isSafeDefault: false };
+}
+
+// ── Renderers ─────────────────────────────────────────────────────────────────
 
 function renderDevices(data) {
   const entries = Object.entries(data);
@@ -610,41 +589,73 @@ function renderDevices(data) {
   }
 
   const html = entries.map(([id, d]) => {
-    const conf = d.confidence ? d.confidence.value : 0;
-    const pct  = Math.round(conf * 100);
-    const fill = confColor(conf);
+    const conf       = d.confidence ? d.confidence.value : 0;
+    const pct        = Math.round(conf * 100);
+    const fill       = confColor(conf);
+    const safeDefault = d.confidence ? d.confidence.safe_default : {};
+    const isSafeDefaultActive = conf <= UNKNOWN_THRESHOLD;
 
-    // Border class: mismatch (orange) overrides ok; confidence drives accent bar independently
-    const actual_state  = d.actual  || {};
+    // Determine border class
+    // Priority: safe-default (red) > mismatch (orange) > ok
     const desired_state = d.desired || {};
-    const hasMismatch = Object.entries(desired_state).some(
-      ([k, v]) => valueStr(actual_state[k]) !== valueStr(v)
+    const hasMismatch = !isSafeDefaultActive && Object.entries(desired_state).some(
+      ([k, v]) => {
+        const eff = getEffective(k, d.actual, conf, safeDefault);
+        return eff.value !== valueStr(v);
+      }
     );
-    const cardStateClass = conf < 0.2
-      ? 'state-unknown'
-      : hasMismatch ? 'state-mismatch' : 'state-ok';
 
+    const cardBorderClass = isSafeDefaultActive
+      ? 'state-safe-default'
+      : hasMismatch ? 'state-mismatch' : '';
+
+    const accentClass = confClass(conf);
+
+    // Attribute rows — show effective value prominently
     const attrs = Object.keys(d.actual || {});
     const attrRows = attrs.map(attr => {
-      const actual  = valueStr(d.actual[attr]);
-      const desired = d.desired && d.desired[attr] !== undefined
-                    ? valueStr(d.desired[attr]) : null;
-      const mismatch = desired !== null && desired !== actual;
-      const desiredClass = mismatch ? 'mismatch' : 'desired';
+      const eff     = getEffective(attr, d.actual, conf, safeDefault);
+      const actual  = d.actual && d.actual[attr] !== undefined ? valueStr(d.actual[attr]) : null;
+      const desired = d.desired && d.desired[attr] !== undefined ? valueStr(d.desired[attr]) : null;
+      const mismatch = desired !== null && desired !== eff.value;
+
+      // Effective value row
+      const effClass = eff.isSafeDefault ? 'state-value' : 'state-value';
+      const effStyle = eff.isSafeDefault
+        ? `style="color:var(--red)"`
+        : '';
+
+      // If using safe default, show actual below in dim text for reference
+      const actualRow = eff.isSafeDefault && actual !== null
+        ? `<div class="state-row">
+             <span class="state-label">actual</span>
+             <span class="state-value stale">${actual}</span>
+           </div>`
+        : '';
+
+      const desiredRow = desired !== null
+        ? `<div class="state-row">
+             <span class="state-label">→ desired</span>
+             <span class="state-value ${mismatch ? 'mismatch' : 'desired'}">${desired}</span>
+           </div>`
+        : '';
+
       return `
         <div class="state-row">
           <span class="state-label">${attr}</span>
-          <span class="state-value">${actual}</span>
+          <span class="${effClass}" ${effStyle}>${eff.value}</span>
         </div>
-        ${desired !== null ? `
-        <div class="state-row">
-          <span class="state-label">→ desired</span>
-          <span class="state-value ${desiredClass}">${desired}</span>
-        </div>` : ''}`;
+        ${actualRow}
+        ${desiredRow}`;
     }).join('');
 
+    // Safe default warning banner
+    const safeDefaultBanner = isSafeDefaultActive
+      ? `<div class="safe-default-badge">safe default active</div>`
+      : '';
+
     return `
-      <div class="device-card ${cardStateClass}">
+      <div class="device-card ${accentClass} ${cardBorderClass}">
         <div class="device-id">${id}</div>
         <div class="confidence-row">
           <div class="confidence-bar-track">
@@ -653,6 +664,7 @@ function renderDevices(data) {
           </div>
           <div class="confidence-val" style="color:${fill}">${pct}%</div>
         </div>
+        ${safeDefaultBanner}
         ${attrRows || '<div class="state-row"><span class="state-label dim">no data</span></div>'}
       </div>`;
   }).join('');
@@ -693,10 +705,9 @@ function renderConflicts(data) {
     el('conflicts-panel').innerHTML = '<div class="empty">no conflicts</div>';
     return;
   }
-  // Show most recent 20
   const html = data.slice(-20).reverse().map(c => {
-    const winner = c.winning_rule ? c.winning_rule : '—';
-    const loser  = c.losing_rule  ? c.losing_rule  : '—';
+    const winner = c.winning_rule || '—';
+    const loser  = c.losing_rule  || '—';
     return `
       <div class="log-row conflict-row">
         <div>
@@ -724,7 +735,6 @@ function renderRules(data) {
     return;
   }
   const html = rules.map(r => {
-    const statusCls = r.enabled ? 'enabled' : 'disabled';
     const dot = `<div style="width:6px;height:6px;border-radius:50%;
                   background:${r.enabled ? 'var(--green)' : 'var(--text-dim)'};
                   box-shadow:${r.enabled ? '0 0 4px var(--green)' : 'none'};
@@ -736,17 +746,12 @@ function renderRules(data) {
           <div class="col-label">${r.id}</div>
           <div class="col-value">${r.name}</div>
         </div>
-        <div>
-          <div class="col-value dim">${r.priority}</div>
-        </div>
-        <div>
-          <div class="col-value dim">${r.conflict_group}</div>
-        </div>
+        <div><div class="col-value dim">${r.priority}</div></div>
+        <div><div class="col-value dim">${r.conflict_group}</div></div>
       </div>`;
   }).join('');
   el('rules-panel').innerHTML = html;
 
-  // In-flight
   const inflight = data.in_flight || [];
   el('inflight-count').textContent = inflight.length;
   if (!inflight.length) {
@@ -754,17 +759,15 @@ function renderRules(data) {
     return;
   }
   const ihtml = inflight.map(e => {
-    const kindCls  = e.kind === 'DelayedAction' ? 'delayed' : 'timeout';
-    const kindLbl  = e.kind === 'DelayedAction' ? 'delay' : 'timeout';
+    const kindCls = e.kind === 'DelayedAction' ? 'delayed' : 'timeout';
+    const kindLbl = e.kind === 'DelayedAction' ? 'delay'   : 'timeout';
     return `
       <div class="log-row inflight-row">
         <div>
           <div class="col-label">${e.rule_id}</div>
           <div class="col-value">${e.device_id} / ${e.attribute}</div>
         </div>
-        <div>
-          <div class="col-value" id="cd-${e.fires_at_ms}">${countdown(e.fires_at_ms)}</div>
-        </div>
+        <div><div class="col-value" id="cd-${e.fires_at_ms}">${countdown(e.fires_at_ms)}</div></div>
         <div>${badge(kindCls, kindLbl)}</div>
       </div>`;
   }).join('');
@@ -777,14 +780,11 @@ function renderReconciliation(data) {
     return;
   }
 
-  const mi = data.mismatches_found || 0;
-  const ci = data.commands_issued  || 0;
-  const sn = data.skipped_no_actual     || 0;
+  const mi = data.mismatches_found       || 0;
+  const ci = data.commands_issued        || 0;
+  const sn = data.skipped_no_actual      || 0;
   const sl = data.skipped_low_confidence || 0;
   const unreachable = data.unreachable_devices || [];
-
-  const miClass = mi > 0 ? 'warn' : 'ok';
-  const ciClass = ci > 0 ? 'warn' : 'ok';
 
   const unreachableHtml = unreachable.length
     ? `<div class="unreachable-list">${unreachable.map(d =>
@@ -798,11 +798,11 @@ function renderReconciliation(data) {
         <div class="recon-stat-label">Devices Evaluated</div>
       </div>
       <div class="recon-stat">
-        <div class="recon-stat-val ${miClass}">${mi}</div>
+        <div class="recon-stat-val ${mi > 0 ? 'warn' : 'ok'}">${mi}</div>
         <div class="recon-stat-label">Mismatches Found</div>
       </div>
       <div class="recon-stat">
-        <div class="recon-stat-val ${ciClass}">${ci}</div>
+        <div class="recon-stat-val ${ci > 0 ? 'warn' : 'ok'}">${ci}</div>
         <div class="recon-stat-label">Commands Issued</div>
       </div>
       <div class="recon-stat">
@@ -818,9 +818,7 @@ function renderReconciliation(data) {
     ${unreachableHtml}`;
 }
 
-// ── Fetch + poll ─────────────────────────────────────────────
-
-let pollOk = true;
+// ── Fetch + poll ──────────────────────────────────────────────────────────────
 
 async function fetchJSON(path) {
   const r = await fetch(path);
@@ -849,16 +847,13 @@ async function poll() {
     el('poll-status').textContent  = 'live';
     el('pulse').style.background   = 'var(--green)';
     el('pulse').style.boxShadow    = '0 0 6px var(--green)';
-    pollOk = true;
   } catch (e) {
     el('poll-status').textContent = 'error: ' + e.message;
     el('pulse').style.background  = 'var(--red)';
     el('pulse').style.boxShadow   = '0 0 6px var(--red)';
-    pollOk = false;
   }
 }
 
-// Tick countdowns every second without a full re-render
 function tickCountdowns() {
   document.querySelectorAll('[id^="cd-"]').forEach(el => {
     const ms = parseInt(el.id.replace('cd-', ''));
