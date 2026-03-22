@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Kaya</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:          #F7F6F2;
+    --surface:     #FFFFFF;
+    --surface-2:   #F0EEE9;
+    --border:      rgba(0,0,0,0.08);
+    --border-med:  rgba(0,0,0,0.14);
+    --text:        #1A1A18;
+    --text-2:      #6B6B65;
+    --text-3:      #A8A8A2;
+    --green:       #2D6A4F;
+    --green-bg:    #D8F3DC;
+    --green-light: #95D5B2;
+    --amber:       #B45309;
+    --amber-bg:    #FEF3C7;
+    --red:         #991B1B;
+    --red-bg:      #FEE2E2;
+    --blue:        #1E40AF;
+    --blue-bg:     #DBEAFE;
+    --shadow-sm:   0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md:   0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
+    --r:           16px;
+    --r-sm:        10px;
+    --sans:        'DM Sans', sans-serif;
+    --mono:        'DM Mono', monospace;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Drawer overlay ── */
+  .drawer-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.35);
+    z-index: 200;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+  .drawer-overlay.open { opacity: 1; pointer-events: all; }
+
+  /* ── Drawer ── */
+  .drawer {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: 280px;
+    background: var(--surface);
+    z-index: 300;
+    transform: translateX(-100%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    box-shadow: var(--shadow-md);
+  }
+  .drawer.open { transform: translateX(0); }
+
+  .drawer-head {
+    padding: 56px 24px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .drawer-logo {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .drawer-sub {
+    font-size: 12px;
+    color: var(--text-3);
+    letter-spacing: 0.02em;
+  }
+
+  .drawer-nav {
+    flex: 1;
+    padding: 16px 12px;
+  }
+
+  .drawer-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 14px;
+    border-radius: var(--r-sm);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-2);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    margin-bottom: 2px;
+  }
+
+  .drawer-item:hover { background: var(--surface-2); color: var(--text); }
+  .drawer-item.active { background: var(--surface-2); color: var(--text); }
+
+  .drawer-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+  .drawer-tag {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 2px 7px;
+    border-radius: 20px;
+    background: var(--surface-2);
+    color: var(--text-3);
+    letter-spacing: 0.04em;
+  }
+
+  .drawer-footer {
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-3);
+  }
+
+  /* ── Header ── */
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .hamburger {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+    color: var(--text);
+  }
+  .hamburger:hover { background: var(--surface-2); }
+  .hamburger svg { width: 20px; height: 20px; }
+
+  .header-title {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+  }
+
+  .header-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-3);
+    font-family: var(--mono);
+  }
+
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--green-light);
+    animation: breathe 2.5s ease-in-out infinite;
+  }
+
+  @keyframes breathe {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+  }
+
+  /* ── Main content ── */
+  main {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 24px 16px 40px;
+  }
+
+  /* ── Summary banner ── */
+  .summary {
+    background: var(--surface);
+    border-radius: var(--r);
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .summary-left {}
+
+  .summary-greeting {
+    font-size: 13px;
+    color: var(--text-3);
+    margin-bottom: 3px;
+  }
+
+  .summary-status {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .summary-icon {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .summary-icon.ok { background: var(--green-bg); }
+  .summary-icon.warn { background: var(--amber-bg); }
+  .summary-icon svg { width: 22px; height: 22px; }
+
+  /* ── Section label ── */
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin-bottom: 10px;
+    padding-left: 4px;
+  }
+
+  /* ── Device cards ── */
+  .devices { display: flex; flex-direction: column; gap: 10px; margin-bottom: 28px; }
+
+  .device-card {
+    background: var(--surface);
+    border-radius: var(--r);
+    padding: 18px 20px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+
+  .device-card:active { transform: scale(0.99); }
+
+  .device-icon-wrap {
+    width: 50px; height: 50px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .device-icon-wrap svg { width: 24px; height: 24px; }
+
+  .icon-gate    { background: #E8F4FD; }
+  .icon-power   { background: #FFF9E6; }
+  .icon-pump    { background: #E8F8F2; }
+
+  .device-info { flex: 1; min-width: 0; }
+
+  .device-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .device-state {
+    font-size: 13px;
+    color: var(--text-2);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .state-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 3px 9px;
+    border-radius: 20px;
+  }
+
+  .pill-green  { background: var(--green-bg);  color: var(--green); }
+  .pill-amber  { background: var(--amber-bg);  color: var(--amber); }
+  .pill-red    { background: var(--red-bg);    color: var(--red); }
+  .pill-blue   { background: var(--blue-bg);   color: var(--blue); }
+  .pill-gray   { background: var(--surface-2); color: var(--text-2); }
+
+  .pill-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .device-conf {
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--text-3);
+  }
+
+  .device-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  /* ── Last event ── */
+  .last-event {
+    background: var(--surface);
+    border-radius: var(--r);
+    padding: 16px 20px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border);
+  }
+
+  .event-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .event-row:last-child { border-bottom: none; padding-bottom: 0; }
+  .event-row:first-child { padding-top: 0; }
+
+  .event-dot-wrap {
+    padding-top: 3px;
+    flex-shrink: 0;
+  }
+
+  .event-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--surface-2);
+    border: 2px solid var(--border-med);
+  }
+
+  .event-dot.green  { background: var(--green-bg);  border-color: var(--green-light); }
+  .event-dot.amber  { background: var(--amber-bg);  border-color: #FCD34D; }
+  .event-dot.red    { background: var(--red-bg);    border-color: #FCA5A5; }
+
+  .event-body { flex: 1; }
+
+  .event-desc {
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.4;
+    margin-bottom: 2px;
+  }
+
+  .event-time {
+    font-size: 11px;
+    color: var(--text-3);
+    font-family: var(--mono);
+  }
+
+  /* ── Footer ── */
+  .page-footer {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-3);
+    font-family: var(--mono);
+    padding-top: 8px;
+  }
+
+  /* ── Loading skeleton ── */
+  .skeleton {
+    background: linear-gradient(90deg, var(--surface-2) 25%, #E8E6E0 50%, var(--surface-2) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 6px;
+    height: 14px;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* ── Responsive ── */
+  @media (min-width: 520px) {
+    main { padding: 32px 24px 48px; }
+    .device-card { padding: 20px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Drawer overlay -->
+<div class="drawer-overlay" id="overlay" onclick="closeDrawer()"></div>
+
+<!-- Drawer -->
+<div class="drawer" id="drawer">
+  <div class="drawer-head">
+    <div class="drawer-logo">Kaya</div>
+    <div class="drawer-sub">Home Automation</div>
+  </div>
+  <nav class="drawer-nav">
+    <div class="drawer-item active" onclick="closeDrawer()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
+      Home
+    </div>
+    <div class="drawer-item" onclick="closeDrawer()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+      </svg>
+      Activity
+      <span class="drawer-tag">Soon</span>
+    </div>
+    <div class="drawer-item" onclick="closeDrawer()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
+      </svg>
+      Automations
+      <span class="drawer-tag">Soon</span>
+    </div>
+    <div class="drawer-item" onclick="closeDrawer()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
+      </svg>
+      Settings
+      <span class="drawer-tag">Soon</span>
+    </div>
+    <div class="drawer-item" onclick="closeDrawer()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      About
+    </div>
+  </nav>
+  <div class="drawer-footer">Kaya v0.1.0 · Local</div>
+</div>
+
+<!-- Header -->
+<header>
+  <button class="hamburger" onclick="openDrawer()" aria-label="Menu">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <line x1="3" y1="6" x2="21" y2="6"/>
+      <line x1="3" y1="12" x2="21" y2="12"/>
+      <line x1="3" y1="18" x2="21" y2="18"/>
+    </svg>
+  </button>
+  <span class="header-title">Kaya</span>
+  <div class="header-status">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="last-updated">—</span>
+  </div>
+</header>
+
+<!-- Main -->
+<main>
+
+  <!-- Summary -->
+  <div class="summary" id="summary-card">
+    <div class="summary-left">
+      <div class="summary-greeting">Good morning</div>
+      <div class="summary-status" id="summary-text">Loading…</div>
+    </div>
+    <div class="summary-icon ok" id="summary-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#2D6A4F" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Devices -->
+  <div class="section-label">Devices</div>
+  <div class="devices" id="devices-panel">
+    <div class="device-card">
+      <div class="device-icon-wrap icon-gate"><div class="skeleton" style="width:24px;height:24px;border-radius:6px"></div></div>
+      <div class="device-info"><div class="skeleton" style="width:80px;margin-bottom:6px"></div><div class="skeleton" style="width:50px;height:11px"></div></div>
+    </div>
+    <div class="device-card">
+      <div class="device-icon-wrap icon-power"><div class="skeleton" style="width:24px;height:24px;border-radius:6px"></div></div>
+      <div class="device-info"><div class="skeleton" style="width:100px;margin-bottom:6px"></div><div class="skeleton" style="width:40px;height:11px"></div></div>
+    </div>
+    <div class="device-card">
+      <div class="device-icon-wrap icon-pump"><div class="skeleton" style="width:24px;height:24px;border-radius:6px"></div></div>
+      <div class="device-info"><div class="skeleton" style="width:90px;margin-bottom:6px"></div><div class="skeleton" style="width:45px;height:11px"></div></div>
+    </div>
+  </div>
+
+  <!-- Recent events placeholder -->
+  <div class="section-label">Recent</div>
+  <div class="last-event" id="events-panel">
+    <div class="event-row">
+      <div class="event-dot-wrap"><div class="event-dot"></div></div>
+      <div class="event-body"><div class="skeleton" style="width:160px;margin-bottom:5px"></div><div class="skeleton" style="width:60px;height:10px"></div></div>
+    </div>
+    <div class="event-row">
+      <div class="event-dot-wrap"><div class="event-dot"></div></div>
+      <div class="event-body"><div class="skeleton" style="width:130px;margin-bottom:5px"></div><div class="skeleton" style="width:60px;height:10px"></div></div>
+    </div>
+  </div>
+
+  <div class="page-footer" id="page-footer"></div>
+</main>
+
+<script>
+// ── Drawer ───────────────────────────────────────────────────────────────────
+
+function openDrawer() {
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('overlay').classList.add('open');
+}
+
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('overlay').classList.remove('open');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeDrawer();
+});
+
+// ── Greeting ─────────────────────────────────────────────────────────────────
+
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+document.querySelector('.summary-greeting').textContent = greeting();
+
+// ── Device config ─────────────────────────────────────────────────────────────
+// Maps internal device_id to display info
+
+const DEVICE_META = {
+  main_gate: {
+    label: 'Main Gate',
+    iconClass: 'icon-gate',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#1E6FA5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>`,
+    stateLabel: v => {
+      if (v === 'locked')   return { text: 'Locked',   cls: 'pill-green' };
+      if (v === 'unlocked') return { text: 'Unlocked', cls: 'pill-amber' };
+      return { text: v || '—', cls: 'pill-gray' };
+    },
+  },
+  mains_power: {
+    label: 'Mains Power',
+    iconClass: 'icon-power',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+    </svg>`,
+    stateLabel: v => {
+      if (v === 'kplc')   return { text: 'Grid power', cls: 'pill-green' };
+      if (v === 'outage') return { text: 'Power out',  cls: 'pill-red' };
+      return { text: v || '—', cls: 'pill-gray' };
+    },
+  },
+  borehole_pump: {
+    label: 'Borehole Pump',
+    iconClass: 'icon-pump',
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#1D7A54" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 2a10 10 0 0 1 0 20"/>
+      <path d="M12 2a10 10 0 0 0 0 20"/>
+      <path d="M12 8v8M8 12h8"/>
+    </svg>`,
+    stateLabel: v => {
+      if (v === 'on')  return { text: 'Running', cls: 'pill-green' };
+      if (v === 'off') return { text: 'Stopped', cls: 'pill-gray' };
+      return { text: v || '—', cls: 'pill-gray' };
+    },
+  },
+};
+
+// ── Value helpers ─────────────────────────────────────────────────────────────
+
+function valueStr(v) {
+  if (!v) return null;
+  if (typeof v === 'object') {
+    const k = Object.keys(v)[0];
+    return String(v[k]);
+  }
+  return String(v);
+}
+
+function confPct(d) {
+  return d.confidence ? Math.round(d.confidence.value * 100) : 0;
+}
+
+function timeAgo(ts) {
+  if (!ts) return '';
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60)  return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s/60)}m ago`;
+  if (s < 86400) return `${Math.floor(s/3600)}h ago`;
+  return `${Math.floor(s/86400)}d ago`;
+}
+
+// ── Render devices ────────────────────────────────────────────────────────────
+
+function renderDevices(data) {
+  const entries = Object.entries(data);
+  if (!entries.length) return;
+
+  let anyAlert = false;
+  let anyOutage = false;
+
+  const html = entries.map(([id, d]) => {
+    const meta = DEVICE_META[id];
+    if (!meta) return '';
+
+    const conf  = d.confidence ? d.confidence.value : 0;
+    const pct   = Math.round(conf * 100);
+    const attr  = Object.keys(d.actual || {})[0];
+    const rawVal = attr ? valueStr(d.actual[attr]) : null;
+    const isSafe = conf <= 0.2 && d.confidence && d.confidence.safe_default;
+
+    const displayVal = isSafe
+      ? valueStr(d.confidence.safe_default[attr])
+      : rawVal;
+
+    const { text, cls } = meta.stateLabel(displayVal);
+
+    if (id === 'mains_power' && displayVal === 'outage') anyOutage = true;
+    if (conf < 0.2) anyAlert = true;
+
+    const confColor = conf >= 0.8 ? '#2D6A4F' : conf >= 0.5 ? '#B45309' : '#991B1B';
+
+    return `
+      <div class="device-card">
+        <div class="device-icon-wrap ${meta.iconClass}">${meta.icon}</div>
+        <div class="device-info">
+          <div class="device-name">${meta.label}</div>
+          <div class="device-state">
+            <span class="state-pill ${cls}">
+              <span class="pill-dot"></span>
+              ${text}
+            </span>
+          </div>
+        </div>
+        <div class="device-right">
+          <span class="device-conf" style="color:${confColor}">${pct}%</span>
+        </div>
+      </div>`;
+  }).join('');
+
+  document.getElementById('devices-panel').innerHTML = html;
+
+  // Update summary
+  const summaryText = document.getElementById('summary-text');
+  const summaryIcon = document.getElementById('summary-icon');
+
+  if (anyOutage) {
+    summaryText.textContent = 'Power outage detected';
+    summaryIcon.className = 'summary-icon warn';
+    summaryIcon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
+  } else if (anyAlert) {
+    summaryText.textContent = 'Check device status';
+    summaryIcon.className = 'summary-icon warn';
+    summaryIcon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
+  } else {
+    summaryText.textContent = 'All systems normal';
+    summaryIcon.className = 'summary-icon ok';
+    summaryIcon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#2D6A4F" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+  }
+}
+
+// ── Render recent events (from device state history) ──────────────────────────
+
+function renderEvents(data) {
+  const events = [];
+
+  Object.entries(data).forEach(([id, d]) => {
+    const meta = DEVICE_META[id];
+    if (!meta) return;
+    const attr = Object.keys(d.actual || {})[0];
+    const val  = attr ? valueStr(d.actual[attr]) : null;
+    if (!val) return;
+    const { text } = meta.stateLabel(val);
+    events.push({
+      desc: `${meta.label} — ${text}`,
+      time: Date.now(),
+      cls:  val === 'outage' ? 'red' : val === 'unlocked' ? 'amber' : 'green',
+    });
+  });
+
+  if (!events.length) {
+    document.getElementById('events-panel').innerHTML =
+      '<div style="padding:12px 0;font-size:13px;color:var(--text-3);text-align:center">No recent events</div>';
+    return;
+  }
+
+  document.getElementById('events-panel').innerHTML = events.map(e => `
+    <div class="event-row">
+      <div class="event-dot-wrap"><div class="event-dot ${e.cls}"></div></div>
+      <div class="event-body">
+        <div class="event-desc">${e.desc}</div>
+        <div class="event-time">just now</div>
+      </div>
+    </div>`).join('');
+}
+
+// ── Poll ──────────────────────────────────────────────────────────────────────
+
+async function poll() {
+  try {
+    const r = await fetch('/state');
+    if (!r.ok) throw new Error(r.status);
+    const data = await r.json();
+
+    renderDevices(data);
+    renderEvents(data);
+
+    const now = new Date().toLocaleTimeString('en-GB', { hour12: false });
+    document.getElementById('last-updated').textContent = now;
+    document.getElementById('status-dot').style.background = 'var(--green-light)';
+    document.getElementById('page-footer').textContent = `Updated ${now}`;
+  } catch (e) {
+    document.getElementById('status-dot').style.background = '#FCA5A5';
+    document.getElementById('summary-text').textContent = 'Connection lost';
+  }
+}
+
+poll();
+setInterval(poll, 3000);
+</script>
+</body>
+</html>

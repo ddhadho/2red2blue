@@ -64,6 +64,8 @@ fn route(request_line: &str, state: &UiState) -> String {
             http_200_html(DASHBOARD_HTML.to_string())
         }
 
+        "/home" => http_200_html(include_str!("home.html").to_string()),
+
         "/state" => {
             let devices = {
                 let s = state.lock().unwrap();
