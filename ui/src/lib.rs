@@ -1,176 +1,128 @@
 use std::sync::{Arc, Mutex};
+
+use axum::{
+    Router,
+    extract::{State, WebSocketUpgrade},
+    extract::ws::{Message, WebSocket},
+    http::{HeaderValue, Method},
+    response::{Html, IntoResponse, Response},
+    routing::get,
+    Json,
+};
 use kernel::shared_state::SharedState;
-use tracing::{info, warn};
+use tower_http::cors::{Any, CorsLayer};
+use tracing::info;
 
 pub type UiState = Arc<Mutex<SharedState>>;
 
-// Embedded dashboard — compiled into the binary so the UI server has
-// no filesystem dependency at runtime. The HTML file is read from disk
-// at compile time via include_str!. Path is relative to this source file.
+// Embedded at compile time — no filesystem dependency at runtime
 const DASHBOARD_HTML: &str = include_str!("dashboard.html");
+const HOME_HTML: &str      = include_str!("home.html");
 
 pub async fn start(port: u16, state: UiState) {
-    use tokio::net::TcpListener;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let cors = CorsLayer::new()
+        .allow_origin(Any)          // tighten this once you add auth
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers(Any);
+
+    let app = Router::new()
+        // HTML pages
+        .route("/",          get(dashboard))
+        .route("/index.html",get(dashboard))
+        .route("/home",      get(home))
+        // JSON state endpoints — same paths as before, Flutter can hit these now
+        .route("/state",          get(get_state))
+        .route("/conflicts",      get(get_conflicts))
+        .route("/commands",       get(get_commands))
+        .route("/reconciliation", get(get_reconciliation))
+        .route("/rules",          get(get_rules))
+        // WebSocket — Flutter will connect here for real-time push
+        .route("/ws",             get(ws_handler))
+        .layer(cors)
+        .with_state(state);
 
     let addr = format!("0.0.0.0:{}", port);
-    let listener = TcpListener::bind(&addr).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     info!(port = port, "UI server listening");
 
+    axum::serve(listener, app).await.unwrap();
+}
+
+// ── HTML handlers ──────────────────────────────────────────────
+
+async fn dashboard() -> Html<&'static str> {
+    Html(DASHBOARD_HTML)
+}
+
+async fn home() -> Html<&'static str> {
+    Html(HOME_HTML)
+}
+
+// ── JSON state handlers ────────────────────────────────────────
+
+async fn get_state(State(state): State<UiState>) -> impl IntoResponse {
+    let devices = state.lock().unwrap().devices.clone();
+    Json(devices)
+}
+
+async fn get_conflicts(State(state): State<UiState>) -> impl IntoResponse {
+    let conflicts = state.lock().unwrap().conflicts.clone();
+    Json(conflicts)
+}
+
+async fn get_commands(State(state): State<UiState>) -> impl IntoResponse {
+    let commands = state.lock().unwrap().pending_commands.clone();
+    Json(commands)
+}
+
+async fn get_reconciliation(State(state): State<UiState>) -> impl IntoResponse {
+    let report = state.lock().unwrap().last_reconciliation.clone();
+    match report {
+        Some(r) => Json(serde_json::to_value(r).unwrap_or_default()),
+        None    => Json(serde_json::json!({ "status": "not_yet_reconciled" })),
+    }
+}
+
+async fn get_rules(State(state): State<UiState>) -> impl IntoResponse {
+    let s = state.lock().unwrap();
+    Json(serde_json::json!({
+        "rules":     s.rule_summaries,
+        "in_flight": s.in_flight,
+    }))
+}
+
+// ── WebSocket handler ──────────────────────────────────────────
+// Flutter connects here and receives state snapshots on every change.
+// You'll expand this once SharedState has a change-notification channel.
+
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<UiState>,
+) -> Response {
+    ws.on_upgrade(|socket| handle_socket(socket, state))
+}
+
+async fn handle_socket(mut socket: WebSocket, state: UiState) {
+    // For now: send a full state snapshot immediately on connect,
+    // then poll every 2 seconds until you wire up a proper change channel.
+    // Replace the interval with a tokio::sync::watch receiver once ready.
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(2));
+
     loop {
-        let (mut socket, peer) = listener.accept().await.unwrap();
-        let state = state.clone();
+        interval.tick().await;
 
-        tokio::spawn(async move {
-            // Read the full request line — 4KB is enough for any GET request
-            let mut buf = [0u8; 4096];
-            let n = match socket.read(&mut buf).await {
-                Ok(n) if n > 0 => n,
-                _ => return,
-            };
+        let snapshot = {
+            let s = state.lock().unwrap();
+            serde_json::json!({
+                "devices":  s.devices,
+                "conflicts": s.conflicts,
+            })
+        };
 
-            let request = String::from_utf8_lossy(&buf[..n]);
-
-            // Extract just the request line for routing — "GET /path HTTP/1.1"
-            let request_line = request.lines().next().unwrap_or("");
-
-            let response = route(request_line, &state);
-
-            if let Err(e) = socket.write_all(response.as_bytes()).await {
-                warn!(peer = %peer, error = %e, "failed to write response");
-            }
-        });
-    }
-}
-
-fn route(request_line: &str, state: &UiState) -> String {
-    // Match on path only — ignore query strings and HTTP version suffix.
-    // All endpoints are GET. Any non-GET returns 405.
-    if !request_line.starts_with("GET ") {
-        return http_405();
-    }
-
-    // Extract path — "GET /path HTTP/1.1" → "/path"
-    let path = request_line
-        .trim_start_matches("GET ")
-        .split_whitespace()
-        .next()
-        .unwrap_or("/");
-
-    // Longer prefixes first — /reconciliation before nothing ambiguous here,
-    // but ordering matters if paths ever share a prefix.
-    match path {
-        "/" | "/index.html" => {
-            http_200_html(DASHBOARD_HTML.to_string())
-        }
-
-        "/home" => http_200_html(include_str!("home.html").to_string()),
-
-        "/state" => {
-            let devices = {
-                let s = state.lock().unwrap();
-                s.devices.clone()
-            };
-            http_200_json(serde_json::to_string_pretty(&devices).unwrap_or_default())
-        }
-
-        "/conflicts" => {
-            let conflicts = {
-                let s = state.lock().unwrap();
-                s.conflicts.clone()
-            };
-            http_200_json(serde_json::to_string_pretty(&conflicts).unwrap_or_default())
-        }
-
-        "/commands" => {
-            let commands = {
-                let s = state.lock().unwrap();
-                s.pending_commands.clone()
-            };
-            http_200_json(serde_json::to_string_pretty(&commands).unwrap_or_default())
-        }
-
-        "/reconciliation" => {
-            let report = {
-                let s = state.lock().unwrap();
-                s.last_reconciliation.clone()
-            };
-            let body = match report {
-                Some(r) => serde_json::to_string_pretty(&r).unwrap_or_default(),
-                None    => r#"{"status":"not_yet_reconciled"}"#.to_string(),
-            };
-            http_200_json(body)
-        }
-
-        "/rules" => {
-            let (summaries, in_flight) = {
-                let s = state.lock().unwrap();
-                (s.rule_summaries.clone(), s.in_flight.clone())
-            };
-            let body = serde_json::to_string_pretty(&serde_json::json!({
-                "rules": summaries,
-                "in_flight": in_flight,
-            })).unwrap_or_default();
-            http_200_json(body)
-        }
-
-        _ => {
-            let body = serde_json::to_string_pretty(&serde_json::json!({
-                "routes": ["/", "/state", "/conflicts", "/commands",
-                           "/reconciliation", "/rules"]
-            })).unwrap_or_default();
-            http_404(body)
+        let msg = Message::Text(snapshot.to_string().into());
+        if socket.send(msg).await.is_err() {
+            // Client disconnected — exit cleanly
+            break;
         }
     }
-}
-
-// ── Response builders ─────────────────────────────────────────
-
-fn http_200_json(body: String) -> String {
-    format!(
-        "HTTP/1.1 200 OK\r\n\
-         Content-Type: application/json\r\n\
-         Content-Length: {}\r\n\
-         \r\n\
-         {}",
-        body.len(),
-        body
-    )
-}
-
-fn http_200_html(body: String) -> String {
-    format!(
-        "HTTP/1.1 200 OK\r\n\
-         Content-Type: text/html; charset=utf-8\r\n\
-         Content-Length: {}\r\n\
-         \r\n\
-         {}",
-        body.len(),
-        body
-    )
-}
-
-fn http_404(body: String) -> String {
-    format!(
-        "HTTP/1.1 404 Not Found\r\n\
-         Content-Type: application/json\r\n\
-         Content-Length: {}\r\n\
-         \r\n\
-         {}",
-        body.len(),
-        body
-    )
-}
-
-fn http_405() -> String {
-    let body = r#"{"error":"method not allowed"}"#;
-    format!(
-        "HTTP/1.1 405 Method Not Allowed\r\n\
-         Content-Type: application/json\r\n\
-         Content-Length: {}\r\n\
-         \r\n\
-         {}",
-        body.len(),
-        body
-    )
 }
