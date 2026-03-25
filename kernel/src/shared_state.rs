@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use crate::types::{DeviceId, DeviceState, Command};
+use crate::types::{DeviceId, DeviceState, Command, Device};
 use crate::resolver::ConflictRecord;
 use crate::reconciler::ReconciliationReport;
 use crate::rule_types::{RuleSummary, InFlightSummary};
+
 
 // ── SharedState ──────────────────────────────────────────────
 //
@@ -36,6 +37,8 @@ pub struct SharedState {
     /// In-flight delayed actions — updated on every tick alongside
     /// pending_commands. Volatile — reflects live rule engine state.
     pub in_flight: Vec<InFlightSummary>,
+
+    pub registry: Vec<Device>, 
 }
 
 impl SharedState {

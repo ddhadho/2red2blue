@@ -4,12 +4,13 @@ use axum::{
     Router,
     extract::{State, WebSocketUpgrade},
     extract::ws::{Message, WebSocket},
-    http::{HeaderValue, Method},
+    http::Method,
     response::{Html, IntoResponse, Response},
     routing::get,
     Json,
 };
 use kernel::shared_state::SharedState;
+use kernel::types::Capability;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::info;
 
@@ -36,6 +37,7 @@ pub async fn start(port: u16, state: UiState) {
         .route("/commands",       get(get_commands))
         .route("/reconciliation", get(get_reconciliation))
         .route("/rules",          get(get_rules))
+        .route("/devices", get(get_devices))
         // WebSocket — Flutter will connect here for real-time push
         .route("/ws",             get(ws_handler))
         .layer(cors)
@@ -89,6 +91,26 @@ async fn get_rules(State(state): State<UiState>) -> impl IntoResponse {
         "rules":     s.rule_summaries,
         "in_flight": s.in_flight,
     }))
+}
+
+async fn get_devices(State(state): State<UiState>) -> impl IntoResponse {
+    #[derive(serde::Serialize)]
+    struct DeviceInfo {
+        id: String,
+        name: String,
+        kind: String,
+        writable: bool,
+    }
+
+    let registry = state.lock().unwrap().registry.clone();
+    let info: Vec<DeviceInfo> = registry.iter().map(|d| DeviceInfo {
+        id: d.id.0.clone(),
+        name: d.name.clone(),
+        kind: format!("{:?}", d.kind),
+        writable: d.capabilities.iter().any(|c| matches!(c, Capability::Writable(_))),
+    }).collect();
+
+    Json(info)
 }
 
 // ── WebSocket handler ──────────────────────────────────────────

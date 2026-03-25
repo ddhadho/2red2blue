@@ -137,6 +137,8 @@ async fn main() -> anyhow::Result<()> {
 
     let shared = new_shared();
 
+    shared.lock().unwrap().registry = registry.all().cloned().collect();
+
     let ui_shared = shared.clone();
     tokio::spawn(async move {
         ui::start(config.ui.port, ui_shared).await;
