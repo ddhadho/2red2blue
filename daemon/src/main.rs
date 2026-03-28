@@ -12,11 +12,11 @@ use kernel::rules::RuleEngine;
 use kernel::rule_loader::load_rules;
 use kernel::resolver::ConflictResolver;
 use kernel::dispatcher::CommandDispatcher;
-use kernel::shared_state::{SharedState, new_shared};
+use kernel::shared_state::{SharedState, new_shared, UiCommand};
 use kernel::desired_state_store::DesiredStateStore;
 use kernel::reconciler::{boot_reconcile, continuous_reconcile};
 use kernel::types::{
-    AdapterCommand, Command, Event, EventKind, EventSource, Value,
+    AdapterCommand, AttributeKey, Command, DeviceId, Event, EventKind, EventSource, Value,
 };
 
 use adapters::mock::MockAdapter;
@@ -140,8 +140,9 @@ async fn main() -> anyhow::Result<()> {
     shared.lock().unwrap().registry = registry.all().cloned().collect();
 
     let ui_shared = shared.clone();
+    let (ui_cmd_tx, mut ui_cmd_rx) = tokio::sync::mpsc::channel::<UiCommand>(32);
     tokio::spawn(async move {
-        ui::start(config.ui.port, ui_shared).await;
+        ui::start(config.ui.port, ui_shared, ui_cmd_tx).await;
     });
 
     // Populate rule summaries — stable until next hot-reload
@@ -310,6 +311,23 @@ async fn main() -> anyhow::Result<()> {
                     let mut s = shared.lock().unwrap();
                     s.pending_commands.retain(|c| c.id != confirmed.id);
                 }
+            }
+
+            // ── UI command ────────────────────────────────────
+            Some(ui_cmd) = ui_cmd_rx.recv() => {
+                let command = Command::new(
+                    DeviceId(ui_cmd.device_id),
+                    AttributeKey(ui_cmd.attribute),
+                    Value::Text(ui_cmd.value),
+                    None,  // no rule_id — manual command
+                    100,   // mid priority — rules can override
+                );
+                dispatcher.enqueue(command.clone());
+                info!(
+                    command_id = %command.id,
+                    device_id  = %command.device_id,
+                    "UI command enqueued"
+                );
             }
 
             // ── Device event ──────────────────────────────────

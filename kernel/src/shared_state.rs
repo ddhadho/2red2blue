@@ -5,6 +5,13 @@ use crate::resolver::ConflictRecord;
 use crate::reconciler::ReconciliationReport;
 use crate::rule_types::{RuleSummary, InFlightSummary};
 
+#[derive(Debug, Clone)]
+pub struct UiCommand {
+    pub device_id:  String,
+    pub attribute:  String,
+    pub value:      String,
+    pub command_id: String,
+}
 
 // ── SharedState ──────────────────────────────────────────────
 //
