@@ -94,7 +94,6 @@ pub enum EventSource {
     System,
     Rule(RuleId),
     User,
-    Poll,
     Adapter,
 }
 

@@ -61,10 +61,7 @@ impl EventIngestor {
             Value::Text(device_id.0.clone()),
         );
 
-        let source = match raw.source {
-            EventSource::Poll => EventSource::Poll,
-            _ => EventSource::Device(device_id),
-        };
+        let source = EventSource::Device(device_id.clone());
 
         let mut event = Event::new(
             source,

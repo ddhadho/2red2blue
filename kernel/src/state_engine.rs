@@ -47,10 +47,6 @@ impl StateEngine {
         if let EventKind::DeviceStateChanged = &event.kind {
             let device_id = match &event.source {
                 EventSource::Device(id) => Some(id.clone()),
-                EventSource::Poll       => event.payload
-                    .get("device_id")
-                    .and_then(|v| if let Value::Text(s) = v { Some(s) } else { None })
-                    .map(|s| DeviceId(s.clone())),
                 _ => None,
             };
 
