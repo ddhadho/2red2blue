@@ -76,11 +76,11 @@ struct AppState {
 
 // ── HTML handlers ─────────────────────────────────────────────────────────────
 
-async fn dashboard(State(s): State<AppState>) -> Html<&'static str> {
+async fn dashboard(State(_s): State<AppState>) -> Html<&'static str> {
     Html(DASHBOARD_HTML)
 }
 
-async fn home(State(s): State<AppState>) -> Html<&'static str> {
+async fn home(State(_s): State<AppState>) -> Html<&'static str> {
     Html(HOME_HTML)
 }
 
@@ -231,7 +231,7 @@ async fn handle_socket(mut socket: WebSocket, state: UiState) {
             })
         };
 
-        let msg = Message::Text(snapshot.to_string().into());
+        let msg = Message::Text(snapshot.to_string());
         if socket.send(msg).await.is_err() {
             break;
         }
