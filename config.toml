@@ -43,7 +43,6 @@ max_memory_mb = 256
 [home_assistant]
 url = "http://127.0.0.1:8123"
 token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJhMGM3MzBiYjExZTI0MTEzYWRlOTZjYmNkZjU4ZTFiMiIsImlhdCI6MTc3MzIzNzk3MCwiZXhwIjoyMDg4NTk3OTcwfQ.P6VAZjrdS65YZGYrq2C11-65lQIhpQVBzGv5viKcMcY"
-poll_interval_seconds = 30
 
 [[home_assistant.devices]]
 ha_entity_id     = "input_boolean.main_gate"
