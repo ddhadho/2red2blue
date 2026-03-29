@@ -14,7 +14,7 @@ struct DeviceEntry {
     external_id: String,
     name: String,
     kind: String,
-    capabilities: Vec<String>,
+    capabilities: Vec<toml::Value>,
     confidence_decay_seconds: u64,
     safe_default: HashMap<String, toml::Value>,
 }
@@ -54,7 +54,15 @@ impl DeviceRegistry {
             };
 
             let capabilities = entry.capabilities.iter().map(|c| {
-                Capability::Readable(AttributeKey(c.clone()))
+                if let toml::Value::Table(t) = c {
+                    if let Some(attr) = t.get("Writable").and_then(|v| v.as_str()) {
+                        return Capability::Writable(AttributeKey(attr.to_string()));
+                    }
+                    if let Some(attr) = t.get("Readable").and_then(|v| v.as_str()) {
+                        return Capability::Readable(AttributeKey(attr.to_string()));
+                    }
+                }
+                Capability::Readable(AttributeKey("unknown".to_string()))
             }).collect();
 
             let safe_default = entry.safe_default.iter()
