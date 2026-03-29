@@ -19,7 +19,6 @@ use kernel::types::{
     AdapterCommand, AttributeKey, Command, DeviceId, Event, EventKind, EventSource, Value,
 };
 
-use adapters::mock::MockAdapter;
 use adapters::ha::HaAdapter;
 use adapters::traits::DeviceAdapter;
 
@@ -165,20 +164,12 @@ async fn main() -> anyhow::Result<()> {
     let (cmd_tx,     mut cmd_rx)     = tokio::sync::mpsc::channel::<AdapterCommand>(32);
     let (confirm_tx, mut confirm_rx) = tokio::sync::mpsc::channel::<String>(32);
 
-    let mut adapter: Box<dyn DeviceAdapter + Send> = match config.adapter.kind.as_str() {
-        "homeassistant" => {
-            let ha_cfg = config.home_assistant.clone()
-                .context("home_assistant config required")?;
-            let mut a = HaAdapter::new(ha_cfg, confirm_tx.clone());
-            a.connect().await.context("HA adapter connect failed")?;
-            a.start_poll_loop(event_tx.clone());
-            Box::new(a)
-        }
-        _ => {
-            let mut a = MockAdapter::new(confirm_tx.clone());
-            a.connect().await.context("mock adapter connect failed")?;
-            Box::new(a)
-        }
+    let ha_cfg = config.home_assistant.clone()
+        .context("home_assistant config required")?;
+    let mut adapter: Box<dyn DeviceAdapter + Send> = {
+        let mut a = HaAdapter::new(ha_cfg, confirm_tx.clone());
+        a.connect().await.context("HA adapter connect failed")?;
+        Box::new(a)
     };
 
     tokio::spawn(async move {
