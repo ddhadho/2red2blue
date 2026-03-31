@@ -12,7 +12,7 @@ use kernel::rules::RuleEngine;
 use kernel::rule_loader::load_rules;
 use kernel::resolver::ConflictResolver;
 use kernel::dispatcher::CommandDispatcher;
-use kernel::shared_state::{SharedState, new_shared, UiCommand};
+use kernel::shared_state::{SharedState, new_shared, UiCommand, EventSummary};
 use kernel::desired_state_store::DesiredStateStore;
 use kernel::reconciler::{boot_reconcile, continuous_reconcile};
 use kernel::types::{
@@ -299,6 +299,16 @@ async fn main() -> anyhow::Result<()> {
                     wal.append(event, EventPriority::Critical)
                         .context("WAL append failed for CommandConfirmed")?;
 
+                    push_event(&shared, EventSummary {
+                        timestamp:  to_ms(SystemTime::now()),
+                        kind:       "CommandConfirmed".to_string(),
+                        device_id:  Some(confirmed.device_id.0.clone()),
+                        attribute:  Some(confirmed.attribute.0.clone()),
+                        value:      Some(confirmed.value.to_string()),
+                        source:     "System".to_string(),
+                        command_id: Some(confirmed.id.clone()),
+                    });
+
                     let mut s = shared.lock().unwrap();
                     s.pending_commands.retain(|c| c.id != confirmed.id);
                 }
@@ -328,6 +338,25 @@ async fn main() -> anyhow::Result<()> {
 
                     wal.append(event.clone(), EventPriority::for_kind(&event.kind))
                         .context("WAL append failed")?;
+                    
+                    push_event(&shared, EventSummary {
+                        timestamp:  to_ms(now),
+                        kind:       format!("{:?}", event.kind),
+                        device_id:  event.payload.get("device_id")
+                                        .and_then(|v| if let Value::Text(s) = v { Some(s.clone()) } else { None }),
+                        attribute:  event.payload.get("attribute")
+                                        .and_then(|v| if let Value::Text(s) = v { Some(s.clone()) } else { None }),
+                        value:      event.payload.get("value")
+                                        .and_then(|v| if let Value::Text(s) = v { Some(s.clone()) } else { None }),
+                        source:     match &event.source {
+                            EventSource::Device(id) => format!("device:{}", id.0),
+                            EventSource::Rule(id)   => format!("rule:{}", id.0),
+                            EventSource::System     => "system".to_string(),
+                            EventSource::User       => "user".to_string(),
+                            EventSource::Adapter    => "adapter".to_string(),
+                        },
+                        command_id: None,
+                    });                    
 
                     let update = state_engine.apply_event(&event);
 
@@ -414,6 +443,16 @@ async fn main() -> anyhow::Result<()> {
                     );
                     wal.append(event, EventPriority::Critical)
                         .context("WAL append failed for CommandFailed")?;
+
+                    push_event(&shared, EventSummary {
+                        timestamp:  to_ms(SystemTime::now()),
+                        kind:       "CommandFailed".to_string(),
+                        device_id:  Some(failed.device_id.0.clone()),
+                        attribute:  Some(failed.attribute.0.clone()),
+                        value:      Some(failed.value.to_string()),
+                        source:     "System".to_string(),
+                        command_id: Some(failed.id.clone()),
+                    });
                 }
 
                 // Periodic desired state flush
@@ -550,4 +589,12 @@ fn to_ms(t: SystemTime) -> u64 {
     t.duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+fn push_event(shared: &Arc<Mutex<SharedState>>, summary: EventSummary) {
+    let mut s = shared.lock().unwrap();
+    s.event_history.push_front(summary);
+    if s.event_history.len() > 200 {
+        s.event_history.pop_back();
+    }
 }
