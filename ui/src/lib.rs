@@ -49,6 +49,7 @@ pub async fn start(
         .route("/state",          get(get_state))
         .route("/conflicts",      get(get_conflicts))
         .route("/commands",       get(get_commands))
+        .route("/events", get(get_events))
         .route("/reconciliation", get(get_reconciliation))
         .route("/rules",          get(get_rules))
         .route("/devices",        get(get_devices))
@@ -99,6 +100,11 @@ async fn get_conflicts(State(s): State<AppState>) -> impl IntoResponse {
 async fn get_commands(State(s): State<AppState>) -> impl IntoResponse {
     let commands = s.shared.lock().unwrap().pending_commands.clone();
     Json(commands)
+}
+
+async fn get_events(State(s): State<AppState>) -> impl IntoResponse {
+    let history = s.shared.lock().unwrap().event_history.clone();
+    Json(history)
 }
 
 async fn get_reconciliation(State(s): State<AppState>) -> impl IntoResponse {
