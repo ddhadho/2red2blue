@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use crate::types::{DeviceId, DeviceState, Command, Device};
@@ -11,6 +13,17 @@ pub struct UiCommand {
     pub attribute:  String,
     pub value:      String,
     pub command_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EventSummary {
+    pub timestamp:  u64,
+    pub kind:       String,
+    pub device_id:  Option<String>,
+    pub attribute:  Option<String>,
+    pub value:      Option<String>,
+    pub source:     String,
+    pub command_id: Option<String>,
 }
 
 // ── SharedState ──────────────────────────────────────────────
@@ -46,6 +59,7 @@ pub struct SharedState {
     pub in_flight: Vec<InFlightSummary>,
 
     pub registry: Vec<Device>, 
+    pub event_history:      VecDeque<EventSummary>,
 }
 
 impl SharedState {
