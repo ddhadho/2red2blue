@@ -1,170 +1,128 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ── Kaya Smart Home Daemon — Install Script ───────────────────────────────────
-#
-# Usage:
-#   curl -sSf https://raw.githubusercontent.com/ddhadho/2red2blue/main/install.sh | bash
-#   or
-#   ./install.sh
-#
-# Supports: Linux (Debian/Ubuntu/Arch/OpenWrt)
-# Requires: bash, curl, git
+# =============================================================================
+# 2red2blue Daemon Installer
+# Supports: Linux (native), macOS (limited), WSL2
+# =============================================================================
 
-REPO_URL="https://github.com/ddhadho/2red2blue.git"
-BINARY_NAME="daemon"
-INSTALL_BIN="/usr/local/bin/kaya-daemon"
-CONFIG_DIR="/etc/smarthome"
-DATA_DIR="/var/lib/smarthome"
-SERVICE_FILE="/etc/systemd/system/kaya.service"
-KAYA_USER="kaya"
-
+RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-RED='\033[0;31m'
 BLUE='\033[0;34m'
-NC='\033[0m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
 
-info()    { echo -e "${GREEN}[kaya]${NC} $1"; }
-warn()    { echo -e "${YELLOW}[warn]${NC} $1"; }
-error()   { echo -e "${RED}[error]${NC} $1"; exit 1; }
-prompt()  { echo -e "${BLUE}[?]${NC} $1"; }
+CONFIG_DIR="/etc/smarthome"
+DATA_DIR="/var/lib/smarthome"
+BINARY_NAME="daemon"
+SERVICE_NAME="smarthome"
 
-# ── Banner ────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------------
+info()    { echo -e "${BLUE}[INFO]${NC}  $*"; }
+success() { echo -e "${GREEN}[OK]${NC}    $*"; }
+warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
+ask()     { echo -e "${BOLD}$*${NC}"; }
 
-echo ""
-echo -e "${GREEN}  ██╗  ██╗ █████╗ ██╗   ██╗ █████╗ ${NC}"
-echo -e "${GREEN}  ██║ ██╔╝██╔══██╗╚██╗ ██╔╝██╔══██╗${NC}"
-echo -e "${GREEN}  █████╔╝ ███████║ ╚████╔╝ ███████║${NC}"
-echo -e "${GREEN}  ██╔═██╗ ██╔══██║  ╚██╔╝  ██╔══██║${NC}"
-echo -e "${GREEN}  ██║  ██╗██║  ██║   ██║   ██║  ██║${NC}"
-echo -e "${GREEN}  ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝${NC}"
-echo ""
-echo -e "  Smart Home Daemon — Install Script"
-echo -e "  https://github.com/ddhadho/2red2blue"
-echo ""
-
-# ── Root check ────────────────────────────────────────────────────────────────
-
-if [[ $EUID -ne 0 ]]; then
-    error "This script must be run as root. Try: sudo ./install.sh"
-fi
-
-# ── Detect OS ─────────────────────────────────────────────────────────────────
-
-if [[ -f /etc/os-release ]]; then
-    . /etc/os-release
-    OS=$ID
-else
-    OS="unknown"
-fi
-
-info "Detected OS: ${OS}"
-
-# ── Check dependencies ────────────────────────────────────────────────────────
-
-check_cmd() {
-    if ! command -v "$1" &> /dev/null; then
-        return 1
-    fi
-    return 0
+detect_os() {
+  case "$(uname -s)" in
+    Linux*)
+      if grep -qi microsoft /proc/version 2>/dev/null; then
+        OS="wsl"
+      else
+        OS="linux"
+      fi
+      ;;
+    Darwin*) OS="mac" ;;
+    *)       error "Unsupported OS: $(uname -s). This daemon runs on Linux or WSL2." ;;
+  esac
 }
 
-# Install curl if missing
-if ! check_cmd curl; then
-    warn "curl not found — installing"
-    case $OS in
-        ubuntu|debian) apt-get install -y curl ;;
-        arch)          pacman -Sy --noconfirm curl ;;
-        *)             error "Please install curl manually and re-run" ;;
-    esac
-fi
+require_sudo() {
+  if [[ "$EUID" -eq 0 ]]; then
+    SUDO=""
+  elif command -v sudo &>/dev/null; then
+    SUDO="sudo"
+    info "This script needs sudo for creating system directories."
+    sudo -v || error "Could not obtain sudo privileges."
+  else
+    error "sudo is required but not installed."
+  fi
+}
 
-# Install git if missing
-if ! check_cmd git; then
-    warn "git not found — installing"
-    case $OS in
-        ubuntu|debian) apt-get install -y git ;;
-        arch)          pacman -Sy --noconfirm git ;;
-        *)             error "Please install git manually and re-run" ;;
-    esac
-fi
+# --------------------------------------------------------------------------
+# Step 1 — Check / install Rust
+# --------------------------------------------------------------------------
+install_rust() {
+  if command -v cargo &>/dev/null; then
+    success "Rust is already installed ($(cargo --version))."
+    return
+  fi
 
-# ── Install Rust ──────────────────────────────────────────────────────────────
+  info "Rust not found. Installing via rustup..."
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+  # Source cargo env for the rest of this script
+  # shellcheck source=/dev/null
+  source "$HOME/.cargo/env"
+  success "Rust installed ($(cargo --version))."
+}
 
-if ! check_cmd cargo; then
-    info "Rust not found — installing via rustup"
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --quiet
-    source "$HOME/.cargo/env"
-    info "Rust installed"
-else
-    info "Rust found: $(cargo --version)"
-fi
+# --------------------------------------------------------------------------
+# Step 2 — Locate repo
+# --------------------------------------------------------------------------
+setup_repo() {
+  if ! git -C "$(pwd)" rev-parse --is-inside-work-tree &>/dev/null || [[ ! -f "$(pwd)/Cargo.toml" ]]; then
+    error "This script must be run from inside the 2red2blue repo directory.\ncd into the repo first and try again."
+  fi
+  INSTALL_DIR="$(pwd)"
+  success "Repo found at $INSTALL_DIR."
+}
 
-# Ensure cargo is on PATH
-if ! check_cmd cargo; then
-    source "$HOME/.cargo/env" 2>/dev/null || \
-    source "/root/.cargo/env" 2>/dev/null || \
-    error "Could not find cargo after install. Open a new terminal and re-run."
-fi
+# --------------------------------------------------------------------------
+# Step 3 — Create system directories
+# --------------------------------------------------------------------------
+create_dirs() {
+  info "Creating system directories..."
+  $SUDO mkdir -p "$DATA_DIR/wal" "$DATA_DIR/snapshots" "$CONFIG_DIR"
+  $SUDO chown -R "$USER:$USER" "$DATA_DIR" "$CONFIG_DIR"
+  success "Directories created."
+}
 
-# ── Collect configuration ─────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
+# Step 4 — Prompt for configuration
+# --------------------------------------------------------------------------
+collect_config() {
+  echo ""
+  echo -e "${BOLD}========================================${NC}"
+  echo -e "${BOLD}   Home Assistant Configuration${NC}"
+  echo -e "${BOLD}========================================${NC}"
+  echo ""
 
-echo ""
-echo "─────────────────────────────────────────"
-echo "  Home Assistant Configuration"
-echo "─────────────────────────────────────────"
-echo ""
+  ask "Enter your Home Assistant host and port (e.g. 127.0.0.1:8123):"
+  read -r HA_HOST
+  [[ -z "$HA_HOST" ]] && error "HA host cannot be empty."
 
-prompt "Home Assistant URL (e.g. http://localhost:8123):"
-read -r HA_URL
-HA_URL="${HA_URL%/}"  # strip trailing slash
+  ask "Enter your long-lived HA access token:"
+  read -r -s HA_TOKEN
+  echo ""
+  [[ -z "$HA_TOKEN" ]] && error "HA token cannot be empty."
 
-prompt "Home Assistant long-lived access token:"
-read -r -s HA_TOKEN
-echo ""
+  echo ""
+  info "You can edit entity IDs later in $CONFIG_DIR/devices.toml"
+  echo ""
+}
 
-prompt "Install as systemd service? (starts on boot) [y/N]:"
-read -r INSTALL_SERVICE
-INSTALL_SERVICE="${INSTALL_SERVICE,,}"
+# --------------------------------------------------------------------------
+# Step 5 — Write config files
+# --------------------------------------------------------------------------
+write_configs() {
+  info "Writing configuration files..."
 
-echo ""
-
-# ── Clone or update repo ──────────────────────────────────────────────────────
-
-WORK_DIR="/tmp/kaya-install"
-
-if [[ -d "$WORK_DIR" ]]; then
-    info "Updating existing source"
-    cd "$WORK_DIR"
-    git pull --quiet
-else
-    info "Cloning repository"
-    git clone --quiet "$REPO_URL" "$WORK_DIR"
-    cd "$WORK_DIR"
-fi
-
-# ── Build ─────────────────────────────────────────────────────────────────────
-
-info "Building daemon (this takes a few minutes on first run)"
-cargo build --release --bin daemon 2>&1 | tail -5
-
-info "Build complete"
-
-# ── Create directories ────────────────────────────────────────────────────────
-
-info "Creating directories"
-mkdir -p "$CONFIG_DIR"
-mkdir -p "$DATA_DIR/wal"
-mkdir -p "$DATA_DIR/snapshots"
-
-# ── Write config files ────────────────────────────────────────────────────────
-
-info "Writing config files"
-
-# Only write config.toml if it doesn't exist — don't overwrite existing config
-if [[ ! -f "$CONFIG_DIR/config.toml" ]]; then
-    cat > "$CONFIG_DIR/config.toml" << EOF
+  # config.toml
+  $SUDO tee "$CONFIG_DIR/config.toml" > /dev/null <<EOF
 [daemon]
 name = "smarthome-daemon"
 log_level = "info"
@@ -181,8 +139,9 @@ snapshot_interval_events = 1000
 
 [adapter]
 kind = "homeassistant"
+url = "ws://${HA_HOST}/api/websocket"
 reconnect_interval_seconds = 5
-event_dedup_window_ms = 500
+event_dedup_window_ms = 50
 
 [reconciler]
 boot_window_secs = 30
@@ -207,119 +166,239 @@ watchdog_interval_seconds = 30
 max_memory_mb = 256
 
 [home_assistant]
-url   = "${HA_URL}"
+url = "http://${HA_HOST}"
 token = "${HA_TOKEN}"
 
+[[home_assistant.devices]]
+ha_entity_id = "input_boolean.main_gate"
+device_id    = "main_gate"
+attribute    = "state"
+state_map    = { "on" = "unlocked", "off" = "locked" }
+service_map  = { "unlocked" = "input_boolean/turn_on", "locked" = "input_boolean/turn_off" }
+
+[[home_assistant.devices]]
+ha_entity_id = "input_select.mains_power"
+device_id    = "mains_power"
+attribute    = "source"
+state_map    = { "kplc" = "kplc", "outage" = "outage" }
+service_map  = {}
+
+[[home_assistant.devices]]
+ha_entity_id = "input_boolean.borehole_pump"
+device_id    = "borehole_pump"
+attribute    = "state"
+state_map    = { "on" = "on", "off" = "off" }
+service_map  = { "on" = "input_boolean/turn_on", "off" = "input_boolean/turn_off" }
 EOF
-    info "config.toml written"
-else
-    warn "config.toml already exists — skipping (update HA token manually if needed)"
-fi
 
-# Write empty rules.toml if missing
-if [[ ! -f "$CONFIG_DIR/rules.toml" ]]; then
-    cat > "$CONFIG_DIR/rules.toml" << 'EOF'
-# Kaya automation rules
-# See docs/technical-design/rule-dsl/ for the full DSL reference
+  # devices.toml — embedded template
+  $SUDO tee "$CONFIG_DIR/devices.toml" > /dev/null <<'EOF'
+[[devices]]
+id = "main_gate"
+external_id = "main_gate"
+name = "Main Gate"
+kind = "Gate"
+confidence_decay_seconds = 3000
+[[devices.capabilities]]
+Writable = "state"
+[devices.safe_default]
+state = "locked"
+
+[[devices]]
+id = "borehole_pump"
+external_id = "borehole_pump"
+name = "Borehole Pump"
+kind = "BoreholePump"
+confidence_decay_seconds = 1200
+[[devices.capabilities]]
+Writable = "state"
+[devices.safe_default]
+state = "off"
+
+[[devices]]
+id = "mains_power"
+external_id = "mains_power"
+name = "Mains Power"
+kind = "PowerMonitor"
+confidence_decay_seconds = 1000
+[[devices.capabilities]]
+Readable = "source"
+[devices.safe_default]
+source = "outage"
 EOF
-    info "rules.toml written (empty — add your rules here)"
-fi
 
-# Write empty devices.toml if missing
-if [[ ! -f "$CONFIG_DIR/devices.toml" ]]; then
-    cat > "$CONFIG_DIR/devices.toml" << 'EOF'
-# Kaya device registry
-# Map your Home Assistant entity_ids to internal device IDs
-#
-# Example:
-# [[devices]]
-# id                      = "main_gate"
-# external_id             = "input_boolean.main_gate"
-# name                    = "Main Gate"
-# kind                    = "Gate"
-# confidence_decay_seconds = 300
-#
-# [[devices.safe_default]]
-# attribute = "state"
-# value     = "locked"
+  # rules.toml — embedded template
+  $SUDO tee "$CONFIG_DIR/rules.toml" > /dev/null <<'EOF'
+[[rules]]
+id = "rule_001"
+name = "Gate unknown state - lock it"
+enabled = true
+priority = 200
+conflict_group = "security"
+[rules.trigger]
+kind = "DeviceStateChanged"
+device_id = "main_gate"
+attribute = "state"
+[[rules.conditions]]
+subject_device_id = "main_gate"
+subject_attribute = "state"
+operator = "IsUnknown"
+[[rules.actions]]
+device_id = "main_gate"
+attribute = "state"
+value_text = "locked"
+
+# ─────────────────────────────────────────────────────────────
+[[rules]]
+id = "rule_002"
+name = "Power restored - start pump"
+enabled = true
+priority = 255
+conflict_group = "power_recovery"
+[rules.trigger]
+kind = "DeviceStateChanged"
+device_id = "mains_power"
+attribute = "source"
+[[rules.conditions]]
+subject_device_id = "mains_power"
+subject_attribute = "source"
+operator = "Equals"
+value_text = "kplc"
+[[rules.conditions]]
+subject_device_id = "mains_power"
+subject_attribute = "source"
+operator = "WasPreviously"
+value_text = "outage"
+[[rules.actions]]
+device_id = "main_gate"
+attribute = "state"
+value_text = "locked"
+[[rules.actions]]
+device_id = "borehole_pump"
+attribute = "state"
+value_text = "on"
+delay_seconds = 30
+
+# ─────────────────────────────────────────────────────────────
+[[rules]]
+id = "rule_003"
+name = "Power outage - stop pump"
+enabled = true
+priority = 255
+conflict_group = "pump"
+[rules.trigger]
+kind = "DeviceStateChanged"
+device_id = "mains_power"
+attribute = "source"
+[[rules.conditions]]
+subject_device_id = "mains_power"
+subject_attribute = "source"
+operator = "Equals"
+value_text = "outage"
+[[rules.actions]]
+device_id = "borehole_pump"
+attribute = "state"
+value_text = "off"
 EOF
-    info "devices.toml written (empty — add your devices here)"
-fi
 
-# ── Install binary ────────────────────────────────────────────────────────────
+  success "Config files written to $CONFIG_DIR."
+}
 
-info "Installing binary to $INSTALL_BIN"
-cp "$WORK_DIR/target/release/$BINARY_NAME" "$INSTALL_BIN"
-chmod +x "$INSTALL_BIN"
+# --------------------------------------------------------------------------
+# Step 6 — Build
+# --------------------------------------------------------------------------
+build_daemon() {
+  info "Building daemon (this may take a few minutes on first run)..."
+  cargo build 2>&1
+  success "Build complete."
+}
 
-# ── Create system user ────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
+# Step 7 — Optionally install as systemd service (Linux/WSL2 with systemd)
+# --------------------------------------------------------------------------
+install_service() {
+  # Only offer on Linux with systemd
+  if [[ "$OS" == "mac" ]]; then
+    return
+  fi
+  if ! command -v systemctl &>/dev/null; then
+    warn "systemd not found — skipping service install."
+    return
+  fi
 
-if [[ "$INSTALL_SERVICE" == "y" ]]; then
-    if ! id "$KAYA_USER" &>/dev/null; then
-        info "Creating system user: $KAYA_USER"
-        useradd --system --no-create-home --shell /usr/sbin/nologin "$KAYA_USER"
-    fi
-
-    chown -R "$KAYA_USER:$KAYA_USER" "$DATA_DIR"
-    chown -R "$KAYA_USER:$KAYA_USER" "$CONFIG_DIR"
-
-    # ── Write systemd service ─────────────────────────────────────────────────
-
-    info "Installing systemd service"
-    cat > "$SERVICE_FILE" << EOF
+  echo ""
+  ask "Install daemon as a systemd service that starts on boot? [y/N]:"
+  read -r INSTALL_SERVICE
+  if [[ "$INSTALL_SERVICE" =~ ^[Yy]$ ]]; then
+    BINARY_PATH="$INSTALL_DIR/target/debug/$BINARY_NAME"
+    $SUDO tee "/etc/systemd/system/${SERVICE_NAME}.service" > /dev/null <<EOF
 [Unit]
-Description=Kaya Smart Home Daemon
+Description=2red2blue Smart Home Daemon
 After=network.target
-Wants=network.target
 
 [Service]
 Type=simple
-User=$KAYA_USER
-ExecStart=$INSTALL_BIN $CONFIG_DIR/config.toml
+ExecStart=${BINARY_PATH} ${CONFIG_DIR}/config.toml
 Restart=on-failure
-RestartSec=5s
-StandardOutput=journal
-StandardError=journal
+RestartSec=5
+User=${USER}
 
 [Install]
 WantedBy=multi-user.target
 EOF
+    $SUDO systemctl daemon-reload
+    $SUDO systemctl enable "$SERVICE_NAME"
+    $SUDO systemctl start "$SERVICE_NAME"
+    success "Service installed and started."
+    info "Manage with: systemctl status|stop|restart $SERVICE_NAME"
+  else
+    info "Skipping service install."
+  fi
+}
 
-    systemctl daemon-reload
-    systemctl enable kaya
-    systemctl start kaya
+# --------------------------------------------------------------------------
+# Done — print summary
+# --------------------------------------------------------------------------
+print_summary() {
+  echo ""
+  echo -e "${GREEN}${BOLD}========================================${NC}"
+  echo -e "${GREEN}${BOLD}   Installation complete!${NC}"
+  echo -e "${GREEN}${BOLD}========================================${NC}"
+  echo ""
+  echo -e "  Config files:     ${BOLD}$CONFIG_DIR/${NC}"
+  echo -e "  Data directory:   ${BOLD}$DATA_DIR/${NC}"
+  echo -e "  Binary:           ${BOLD}$INSTALL_DIR/target/debug/$BINARY_NAME${NC}"
+  echo ""
+  echo -e "  To run manually:"
+  echo -e "    ${BOLD}$INSTALL_DIR/target/debug/$BINARY_NAME $CONFIG_DIR/config.toml${NC}"
+  echo ""
+  echo -e "  Dashboards (once running):"
+  echo -e "    Technical:  ${BOLD}http://localhost:7000${NC}"
+  echo -e "    Homeowner:  ${BOLD}http://localhost:7000/home${NC}"
+  echo ""
+  echo -e "  Edit entity IDs anytime:"
+  echo -e "    ${BOLD}nano $CONFIG_DIR/devices.toml${NC}"
+  echo ""
+}
 
-    echo ""
-    info "Kaya daemon installed and started"
-    echo ""
-    echo "  Useful commands:"
-    echo "    sudo systemctl status kaya     — check status"
-    echo "    sudo journalctl -u kaya -f     — follow logs"
-    echo "    sudo systemctl restart kaya    — restart"
-    echo "    sudo systemctl stop kaya       — stop"
-    echo ""
-else
-    chown -R "$USER:$USER" "$DATA_DIR" 2>/dev/null || true
-    chown -R "$USER:$USER" "$CONFIG_DIR" 2>/dev/null || true
+# --------------------------------------------------------------------------
+# Main
+# --------------------------------------------------------------------------
+main() {
+  echo ""
+  echo -e "${BOLD}  2red2blue Daemon Installer${NC}"
+  echo ""
 
-    echo ""
-    info "Kaya daemon installed"
-    echo ""
-    echo "  Run manually:"
-    echo "    $INSTALL_BIN $CONFIG_DIR/config.toml"
-    echo ""
-fi
+  detect_os
+  require_sudo
+  install_rust
+  setup_repo
+  create_dirs
+  collect_config
+  write_configs
+  build_daemon
+  install_service
+  print_summary
+}
 
-# ── Next steps ────────────────────────────────────────────────────────────────
-
-echo "─────────────────────────────────────────"
-echo "  Next steps"
-echo "─────────────────────────────────────────"
-echo ""
-echo "  1. Add your devices to $CONFIG_DIR/devices.toml"
-echo "  2. Add your rules to  $CONFIG_DIR/rules.toml"
-echo "  3. Open the dashboard: http://localhost:7000"
-echo "  4. Open the home view: http://localhost:7000/home"
-echo ""
-echo "  Docs: https://github.com/ddhadho/2red2blue/tree/main/docs"
-echo ""
+main "$@"
