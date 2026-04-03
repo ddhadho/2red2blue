@@ -121,10 +121,19 @@ async fn get_reconciliation(State(s): State<AppState>) -> impl IntoResponse {
 }
 
 async fn get_rules(State(s): State<AppState>) -> impl IntoResponse {
-    let state = s.shared.lock().unwrap();
+    let rules_path = s.shared.lock().unwrap().rules_path.clone();
+    let in_flight  = s.shared.lock().unwrap().in_flight.clone();
+
+    let rules: Vec<kernel::rule_types::RuleEntry> = match std::fs::read_to_string(&rules_path) {
+        Ok(contents) => toml::from_str::<kernel::rule_types::RuleFile>(&contents)
+            .map(|f| f.rules)
+            .unwrap_or_default(),
+        Err(_) => vec![],
+    };
+
     Json(serde_json::json!({
-        "rules":     state.rule_summaries,
-        "in_flight": state.in_flight,
+        "rules":     rules,
+        "in_flight": in_flight,
     }))
 }
 
