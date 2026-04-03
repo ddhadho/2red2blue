@@ -136,12 +136,15 @@ async fn main() -> anyhow::Result<()> {
 
     let shared = new_shared();
 
+    shared.lock().unwrap().rules_path = config.storage.rules_path.clone();
+
     shared.lock().unwrap().registry = registry.all().cloned().collect();
 
     let ui_shared = shared.clone();
     let (ui_cmd_tx, mut ui_cmd_rx) = tokio::sync::mpsc::channel::<UiCommand>(32);
+    let (reload_tx, mut reload_rx) = tokio::sync::mpsc::channel::<()>(4);
     tokio::spawn(async move {
-        ui::start(config.ui.port, ui_shared, ui_cmd_tx).await;
+        ui::start(config.ui.port, ui_shared, ui_cmd_tx, reload_tx).await;
     });
 
     // Populate rule summaries — stable until next hot-reload
@@ -486,6 +489,28 @@ async fn main() -> anyhow::Result<()> {
                     Err(e) => tracing::error!(
                         error = %e,
                         "rule reload failed — keeping existing rules"
+                    ),
+                }
+            }
+
+            Some(()) = reload_rx.recv() => {
+                info!("API rule reload triggered");
+                match load_rules(&rules_path, &registry) {
+                    Ok(rules) => {
+                        let r = rule_engine.hot_reload(rules);
+                        info!(
+                            loaded              = r.rules_loaded,
+                            added               = r.rules_added,
+                            removed             = r.rules_removed,
+                            in_flight_cancelled = r.in_flight_cancelled,
+                            "rules reloaded via API"
+                        );
+                        shared.lock().unwrap().rule_summaries =
+                            rule_engine.rule_summaries();
+                    }
+                    Err(e) => tracing::error!(
+                        error = %e,
+                        "API rule reload failed"
                     ),
                 }
             }

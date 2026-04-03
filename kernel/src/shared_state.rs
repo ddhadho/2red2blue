@@ -7,6 +7,7 @@ use crate::resolver::ConflictRecord;
 use crate::reconciler::ReconciliationReport;
 use crate::rule_types::{RuleSummary, InFlightSummary};
 
+
 #[derive(Debug, Clone)]
 pub struct UiCommand {
     pub device_id:  String,
@@ -60,6 +61,8 @@ pub struct SharedState {
 
     pub registry: Vec<Device>, 
     pub event_history:      VecDeque<EventSummary>,
+    pub rules_path: String,
+
 }
 
 impl SharedState {
@@ -73,3 +76,4 @@ pub type Shared = Arc<Mutex<SharedState>>;
 pub fn new_shared() -> Shared {
     Arc::new(Mutex::new(SharedState::new()))
 }
+
