@@ -6,12 +6,12 @@ use crate::types::{DeviceId, AttributeKey, Value, RuleId};
 // Raw deserialized structs — mirrors rules.toml exactly.
 // Strings everywhere, no validation, no conversion.
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RuleFile {
     pub rules: Vec<RuleEntry>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RuleEntry {
     pub id: String,
     pub name: String,
@@ -25,14 +25,14 @@ pub struct RuleEntry {
     pub stateful: Option<StatefulEntry>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TriggerEntry {
     pub kind: String,
     pub device_id: Option<String>,
     pub attribute: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConditionEntry {
     pub subject_device_id: String,
     pub subject_attribute: String,
@@ -48,7 +48,7 @@ pub struct ConditionEntry {
     pub duration_seconds: Option<u64>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ActionEntry {
     pub device_id: String,
     pub attribute: String,
@@ -59,7 +59,7 @@ pub struct ActionEntry {
     pub delay_seconds: Option<u64>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StatefulEntry {
     pub timeout_seconds: u64,
     #[serde(default)]
