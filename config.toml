@@ -64,3 +64,9 @@ device_id        = "borehole_pump"
 attribute        = "state"
 state_map        = { "on" = "on", "off" = "off" }
 service_map      = { "on" = "input_boolean/turn_on", "off" = "input_boolean/turn_off" }
+[[home_assistant.devices]]
+ha_entity_id = "switch.geyser"
+device_id    = "geyser"
+attribute    = "state"
+state_map    = { "off" = "off", "on" = "on" }
+service_map  = { "off" = "switch/turn_off", "on" = "switch/turn_on" }
