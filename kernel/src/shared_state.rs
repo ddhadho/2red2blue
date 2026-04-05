@@ -62,7 +62,10 @@ pub struct SharedState {
     pub registry: Vec<Device>, 
     pub event_history:      VecDeque<EventSummary>,
     pub rules_path: String,
-
+    pub ha_url:      String,
+    pub ha_token:    String,
+    pub devices_path: String,
+    pub config_path:  String,
 }
 
 impl SharedState {

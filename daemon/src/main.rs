@@ -147,12 +147,18 @@ async fn main() -> anyhow::Result<()> {
         ui::start(config.ui.port, ui_shared, ui_cmd_tx, reload_tx).await;
     });
 
-    // Populate rule summaries — stable until next hot-reload
     {
         let mut s = shared.lock().unwrap();
         s.rule_summaries = rule_engine.rule_summaries();
+        s.rules_path   = config.storage.rules_path.clone();
+        s.devices_path = config.storage.devices_path.clone();
+        s.config_path  = config_path.clone();
+        if let Some(ha) = &config.home_assistant {
+            s.ha_url   = ha.url.clone();
+            s.ha_token = ha.token.clone();
+        }
     }
-
+    
     // ── Channels ──────────────────────────────────────────────
     //
     // event_tx   — raw device events from adapter to main
