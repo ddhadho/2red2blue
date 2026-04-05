@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::{collections::HashMap, sync::{Arc, Mutex}};
 
 use axum::{
     Router,
@@ -52,7 +52,8 @@ pub async fn start(
         .route("/commands",       get(get_commands))
         .route("/events", get(get_events))
         .route("/reconciliation", get(get_reconciliation))
-        .route("/devices",        get(get_devices))
+        .route("/devices",      get(get_devices).post(post_device))
+        .route("/ha/entities",  get(get_ha_entities))
         // Write endpoints
         .route("/rules",              get(get_rules).post(post_rule))
         .route("/rules/:id/enable",   post(enable_rule))
@@ -63,6 +64,7 @@ pub async fn start(
         .route("/ws",             get(ws_handler))
         .layer(cors)
         .with_state(app_state);
+
 
     let addr = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
@@ -155,6 +157,243 @@ async fn get_devices(State(s): State<AppState>) -> impl IntoResponse {
     }).collect();
 
     Json(info)
+}
+
+// ── GET /ha/entities ──────────────────────────────────────────────────────────
+//
+// Proxies to HA /api/states and marks which entities are already configured.
+// Used by the Flutter device discovery screen.
+
+async fn get_ha_entities(State(s): State<AppState>) -> impl IntoResponse {
+    let (ha_url, ha_token, configured_ids) = {
+        let state = s.shared.lock().unwrap();
+        let configured: std::collections::HashSet<String> = state
+            .registry
+            .iter()
+            .map(|d| d.external_id.clone())
+            .collect();
+        (state.ha_url.clone(), state.ha_token.clone(), configured)
+    };
+
+    if ha_url.is_empty() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error":   "no_ha_config",
+                "message": "home_assistant not configured",
+                "status":  503,
+            })),
+        ).into_response();
+    }
+
+    let url = format!("{}/api/states", ha_url.trim_end_matches('/'));
+
+    let client = reqwest::Client::new();
+    let resp = match client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", ha_token))
+        .header("Content-Type", "application/json")
+        .send()
+        .await
+    {
+        Ok(r)  => r,
+        Err(e) => return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error":   "ha_unreachable",
+                "message": e.to_string(),
+                "status":  503,
+            })),
+        ).into_response(),
+    };
+
+    let states: Vec<serde_json::Value> = match resp.json().await {
+        Ok(v)  => v,
+        Err(e) => return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error":   "parse_failed",
+                "message": e.to_string(),
+                "status":  500,
+            })),
+        ).into_response(),
+    };
+
+    let entities: Vec<serde_json::Value> = states.iter().map(|entity| {
+        let entity_id = entity["entity_id"].as_str().unwrap_or("").to_string();
+        let domain    = entity_id.split('.').next().unwrap_or("").to_string();
+        let friendly  = entity["attributes"]["friendly_name"]
+            .as_str()
+            .unwrap_or(&entity_id)
+            .to_string();
+        let already   = configured_ids.contains(&entity_id);
+
+        serde_json::json!({
+            "entity_id":          entity_id,
+            "state":              entity["state"],
+            "friendly_name":      friendly,
+            "domain":             domain,
+            "already_configured": already,
+        })
+    }).collect();
+
+    (StatusCode::OK, Json(serde_json::json!(entities))).into_response()
+}
+
+// ── POST /devices ─────────────────────────────────────────────────────────────
+//
+// Adds a new device. Writes to devices.toml and config.toml HA section.
+// Does not restart the daemon — the new device is picked up on next restart.
+// For V1 pilot this is acceptable. Hot-reload of devices is post-pilot.
+//
+// Request shape:
+// {
+//   "ha_entity_id":           "switch.geyser",
+//   "device_id":              "geyser",
+//   "name":                   "Geyser",
+//   "kind":                   "SmartPlug",
+//   "attribute":              "state",
+//   "confidence_decay_seconds": 120,
+//   "writable":               true,
+//   "safe_default":           { "state": "off" },
+//   "state_map":              { "on": "on", "off": "off" },
+//   "service_map":            { "on": "switch/turn_on", "off": "switch/turn_off" }
+// }
+
+#[derive(Deserialize)]
+struct NewDeviceRequest {
+    ha_entity_id:             String,
+    device_id:                String,
+    name:                     String,
+    kind:                     String,
+    attribute:                String,
+    confidence_decay_seconds: u64,
+    writable:                 bool,
+    safe_default:             HashMap<String, String>,
+    state_map:                HashMap<String, String>,
+    service_map:              HashMap<String, String>,
+}
+
+async fn post_device(
+    State(s): State<AppState>,
+    Json(req): Json<NewDeviceRequest>,
+) -> impl IntoResponse {
+    let (devices_path, config_path) = {
+        let state = s.shared.lock().unwrap();
+        (state.devices_path.clone(), state.config_path.clone())
+    };
+
+    // Check for duplicate device_id
+    {
+        let state = s.shared.lock().unwrap();
+        if state.registry.iter().any(|d| d.id.0 == req.device_id) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error":   "duplicate_device",
+                    "message": format!("device_id '{}' already exists", req.device_id),
+                    "status":  400,
+                })),
+            ).into_response();
+        }
+    }
+
+    // ── Write to devices.toml ─────────────────────────────────────────────────
+
+    let capability = if req.writable {
+        format!("\n[[devices.capabilities]]\nWritable = \"{}\"", req.attribute)
+    } else {
+        format!("\n[[devices.capabilities]]\nReadable = \"{}\"", req.attribute)
+    };
+
+    let safe_default_lines: String = req.safe_default.iter()
+        .map(|(k, v)| format!("{} = \"{}\"", k, v))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let device_toml = format!(
+        "\n[[devices]]\nid = \"{}\"\nexternal_id = \"{}\"\nname = \"{}\"\nkind = \"{}\"\nconfidence_decay_seconds = {}{}\n\n[devices.safe_default]\n{}\n",
+        req.device_id,
+        req.device_id,
+        req.name,
+        req.kind,
+        req.confidence_decay_seconds,
+        capability,
+        safe_default_lines,
+    );
+
+    if let Err(e) = append_to_file(&devices_path, &device_toml) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error":   "write_failed",
+                "message": format!("failed to write devices.toml: {}", e),
+                "status":  500,
+            })),
+        ).into_response();
+    }
+
+    // ── Write to config.toml HA devices section ───────────────────────────────
+
+    let state_map_inline = map_to_inline_toml(&req.state_map);
+    let service_map_inline = map_to_inline_toml(&req.service_map);
+
+    let ha_device_toml = format!(
+        "\n[[home_assistant.devices]]\nha_entity_id = \"{}\"\ndevice_id    = \"{}\"\nattribute    = \"{}\"\nstate_map    = {}\nservice_map  = {}\n",
+        req.ha_entity_id,
+        req.device_id,
+        req.attribute,
+        state_map_inline,
+        service_map_inline,
+    );
+
+    if let Err(e) = append_to_file(&config_path, &ha_device_toml) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error":   "write_failed",
+                "message": format!("failed to write config.toml: {}", e),
+                "status":  500,
+            })),
+        ).into_response();
+    }
+
+    info!(
+        device_id  = %req.device_id,
+        ha_entity  = %req.ha_entity_id,
+        "device added via API — restart daemon to activate"
+    );
+
+    (
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "device_id": req.device_id,
+            "status":    "created",
+            "note":      "restart daemon to activate new device",
+        })),
+    ).into_response()
+}
+
+// ── File helpers ──────────────────────────────────────────────────────────────
+
+fn append_to_file(path: &str, content: &str) -> Result<(), String> {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(path)
+        .map_err(|e| e.to_string())?;
+    file.write_all(content.as_bytes())
+        .map_err(|e| e.to_string())
+}
+
+fn map_to_inline_toml(map: &HashMap<String, String>) -> String {
+    if map.is_empty() {
+        return "{}".to_string();
+    }
+    let pairs: Vec<String> = map.iter()
+        .map(|(k, v)| format!("\"{}\" = \"{}\"", k, v))
+        .collect();
+    format!("{{ {} }}", pairs.join(", "))
 }
 
 // ── POST /command ─────────────────────────────────────────────────────────────
