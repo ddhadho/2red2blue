@@ -103,6 +103,13 @@ collect_config() {
 
   ask "Enter your Home Assistant host and port (e.g. 127.0.0.1:8123):"
   read -r HA_HOST
+
+  # Strip any scheme the user may have included
+  HA_HOST="${HA_HOST#http://}"
+  HA_HOST="${HA_HOST#https://}"
+  HA_HOST="${HA_HOST#ws://}"
+  HA_HOST="${HA_HOST#wss://}"
+
   [[ -z "$HA_HOST" ]] && error "HA host cannot be empty."
 
   ask "Enter your long-lived HA access token:"

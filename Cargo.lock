@@ -1873,10 +1873,12 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "kernel",
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
+ "toml",
  "tower-http 0.5.2",
  "tracing",
  "ulid",

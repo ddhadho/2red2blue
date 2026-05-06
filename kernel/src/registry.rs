@@ -5,6 +5,7 @@ use crate::types::{Device, DeviceId, DeviceKind, Capability, AttributeKey, Value
 
 #[derive(Debug, Deserialize)]
 struct DeviceFile {
+    #[serde(default)]
     devices: Vec<DeviceEntry>,
 }
 
@@ -29,8 +30,12 @@ impl DeviceRegistry {
         let contents = std::fs::read_to_string(path)
             .map_err(|e| RegistryError::IoError(e.to_string()))?;
 
-        let file: DeviceFile = toml::from_str(&contents)
-            .map_err(|e| RegistryError::ParseError(e.to_string()))?;
+        let file: DeviceFile = if contents.trim().is_empty() {
+            DeviceFile { devices: vec![] }
+        } else {
+            toml::from_str(&contents)
+                .map_err(|e| RegistryError::ParseError(e.to_string()))?
+        };
 
         let mut devices = HashMap::new();
         let mut external_to_internal = HashMap::new();
