@@ -1,2 +1,8 @@
 /target
 **/target
+
+/etc/smarthome/
+config.toml
+devices.toml
+install2.sh 
+install.shconfig.toml
