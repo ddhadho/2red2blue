@@ -1,4 +1,8 @@
 use std::{collections::HashMap, sync::{Arc, Mutex}};
+use axum::response::sse::{Event, KeepAlive, Sse};
+use futures_util::stream::StreamExt;
+use std::convert::Infallible;
+use tokio_stream::wrappers::BroadcastStream;
 
 use axum::{
     Router,
@@ -43,9 +47,9 @@ pub async fn start(
 
     let app = Router::new()
         // HTML pages
-        .route("/",           get(dashboard))
-        .route("/index.html", get(dashboard))
-        .route("/home",       get(home))
+        .route("/dashboard",           get(dashboard))
+        .route("/index.html", get(home))
+        .route("/",       get(home))
         // JSON read endpoints
         .route("/state",          get(get_state))
         .route("/conflicts",      get(get_conflicts))
@@ -62,6 +66,7 @@ pub async fn start(
         .route("/command",        post(post_command))
         // WebSocket push
         .route("/ws",             get(ws_handler))
+        .route("/stream", get(sse_handler))
         .layer(cors)
         .with_state(app_state);
 
@@ -639,4 +644,31 @@ async fn handle_socket(mut socket: WebSocket, state: UiState) {
             break;
         }
     }
+}
+
+// ── GET /stream — Server-Sent Events ─────────────────────────────────────────
+//
+// Persistent connection. Daemon pushes events as they happen.
+// Flutter app subscribes once and receives instant updates.
+// Heartbeat every 30 seconds — client reconnects if missed within 60s.
+
+async fn sse_handler(
+    State(s): State<AppState>,
+) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {
+    let rx = s.shared.lock().unwrap().sse_tx.subscribe();
+
+    let stream = BroadcastStream::new(rx)
+        .filter_map(|result| async move {
+            match result {
+                Ok(msg) => {
+                    let event = Event::default()
+                        .event(msg.event)
+                        .data(msg.data);
+                    Some(Ok(event))
+                }
+                Err(_) => None, // lagged — skip, client will catch up on next poll
+            }
+        });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }

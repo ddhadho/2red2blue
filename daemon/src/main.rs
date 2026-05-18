@@ -12,7 +12,7 @@ use kernel::rules::RuleEngine;
 use kernel::rule_loader::load_rules;
 use kernel::resolver::ConflictResolver;
 use kernel::dispatcher::CommandDispatcher;
-use kernel::shared_state::{SharedState, new_shared, UiCommand, EventSummary};
+use kernel::shared_state::{SharedState, new_shared, UiCommand, EventSummary, SseMessage};
 use kernel::desired_state_store::DesiredStateStore;
 use kernel::reconciler::{boot_reconcile, continuous_reconcile};
 use kernel::types::{
@@ -207,6 +207,20 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // SSE heartbeat — every 30 seconds
+    let heartbeat_shared = shared.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(
+            tokio::time::Duration::from_secs(30)
+        );
+        loop {
+            interval.tick().await;
+            push_sse(&heartbeat_shared, "heartbeat", serde_json::json!({
+                "timestamp": to_ms(SystemTime::now()),
+            }));
+        }
+    });
+
     // Step 3 — boot window
     // Accept device events so actual state is fresh before reconciliation.
     // Rule evaluation and command dispatch are suppressed during this window
@@ -308,6 +322,20 @@ async fn main() -> anyhow::Result<()> {
                     wal.append(event, EventPriority::Critical)
                         .context("WAL append failed for CommandConfirmed")?;
 
+                    push_sse(&shared, "command_confirmed", serde_json::json!({
+                        "command_id": confirmed.id,
+                        "device_id":  confirmed.device_id.0,
+                        "value":      match &confirmed.value {
+                            Value::Text(s)  => s.clone(),
+                            Value::Bool(b)  => b.to_string(),
+                            Value::Int(i)   => i.to_string(),
+                            Value::Float(f) => f.to_string(),
+                            Value::Null     => "null".to_string(),
+                        },
+                        "source":     "system",
+                        "timestamp":  to_ms(SystemTime::now()),
+                    }));
+
                     push_event(&shared, EventSummary {
                         timestamp:  to_ms(SystemTime::now()),
                         kind:       "CommandConfirmed".to_string(),
@@ -368,6 +396,36 @@ async fn main() -> anyhow::Result<()> {
                     });                    
 
                     let update = state_engine.apply_event(&event);
+
+                    // Push SSE for each changed device
+                    for device_id in &update.changed_devices {
+                        if let Some(device_state) = state_engine.get_all().get(device_id) {
+                            let conf = device_state.confidence.value;
+                            if let Some((attr, val)) = device_state.actual.iter().next() {
+                                let value_str = match val {
+                                    Value::Text(s)  => s.clone(),
+                                    Value::Bool(b)  => b.to_string(),
+                                    Value::Int(i)   => i.to_string(),
+                                    Value::Float(f) => f.to_string(),
+                                    Value::Null     => "null".to_string(),
+                                };
+                                let event_name = if device_id.0 == "mains_power" {
+                                    if value_str.contains("outage") { "power_cut" }
+                                    else if value_str.contains("kplc") { "power_restored" }
+                                    else { "state_changed" }
+                                } else {
+                                    "state_changed"
+                                };
+                                push_sse(&shared, event_name, serde_json::json!({
+                                    "device_id":  device_id.0,
+                                    "attribute":  attr.0,
+                                    "value":      value_str,
+                                    "confidence": conf,
+                                    "timestamp":  to_ms(now),
+                                }));
+                            }
+                        }
+                    }
 
                     let mut candidates = rule_engine.evaluate(
                         &update,
@@ -452,6 +510,13 @@ async fn main() -> anyhow::Result<()> {
                     );
                     wal.append(event, EventPriority::Critical)
                         .context("WAL append failed for CommandFailed")?;
+
+                    push_sse(&shared, "command_failed", serde_json::json!({
+                        "command_id":  failed.id,
+                        "device_id":   failed.device_id.0,
+                        "retry_count": failed.retry_count,
+                        "timestamp":   to_ms(SystemTime::now()),
+                    }));
 
                     push_event(&shared, EventSummary {
                         timestamp:  to_ms(SystemTime::now()),
@@ -628,4 +693,13 @@ fn push_event(shared: &Arc<Mutex<SharedState>>, summary: EventSummary) {
     if s.event_history.len() > 200 {
         s.event_history.pop_back();
     }
+}
+
+fn push_sse(shared: &Arc<Mutex<SharedState>>, event: &str, data: serde_json::Value) {
+    let tx = shared.lock().unwrap().sse_tx.clone();
+    // ignore send error — no subscribers is fine
+    let _ = tx.send(SseMessage {
+        event: event.to_string(),
+        data:  data.to_string(),
+    });
 }

@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use tokio::sync::broadcast;
 use crate::types::{DeviceId, DeviceState, Command, Device};
 use crate::resolver::ConflictRecord;
 use crate::reconciler::ReconciliationReport;
@@ -27,6 +28,12 @@ pub struct EventSummary {
     pub command_id: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct SseMessage {
+    pub event: String,
+    pub data:  String,
+}
+
 // ── SharedState ──────────────────────────────────────────────
 //
 // Single struct behind a single lock. Main updates it after every
@@ -35,7 +42,7 @@ pub struct EventSummary {
 //
 // One lock — no possibility of two separate states drifting apart.
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct SharedState {
     /// Current device states — updated after every event and tick
     pub devices: HashMap<DeviceId, DeviceState>,
@@ -66,6 +73,7 @@ pub struct SharedState {
     pub ha_token:    String,
     pub devices_path: String,
     pub config_path:  String,
+    pub sse_tx: broadcast::Sender<SseMessage>,
 }
 
 impl SharedState {
@@ -77,6 +85,32 @@ impl SharedState {
 pub type Shared = Arc<Mutex<SharedState>>;
 
 pub fn new_shared() -> Shared {
-    Arc::new(Mutex::new(SharedState::new()))
+    let (sse_tx, _) = broadcast::channel(256);
+    Arc::new(Mutex::new(SharedState {
+        sse_tx,
+        ..Default::default()
+    }))
+}
+
+impl Default for SharedState {
+    fn default() -> Self {
+        let (sse_tx, _) = tokio::sync::broadcast::channel(256);
+        Self {
+            devices:             HashMap::new(),
+            conflicts:           Vec::new(),
+            pending_commands:    Vec::new(),
+            last_reconciliation: None,
+            rule_summaries:      Vec::new(),
+            in_flight:           Vec::new(),
+            registry:            Vec::new(),
+            event_history:       std::collections::VecDeque::new(),
+            rules_path:          String::new(),
+            devices_path:        String::new(),
+            config_path:         String::new(),
+            ha_url:              String::new(),
+            ha_token:            String::new(),
+            sse_tx,
+        }
+    }
 }
 

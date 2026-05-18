@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Kaya</title>
+<title>SmartHome</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -29,6 +29,7 @@
     --blue-bg:     #DBEAFE;
     --shadow-sm:   0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
     --shadow-md:   0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
+    --shadow-lg:   0 12px 32px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.06);
     --r:           16px;
     --r-sm:        10px;
     --sans:        'DM Sans', sans-serif;
@@ -42,6 +43,7 @@
     font-size: 15px;
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
   }
 
   /* ── Drawer overlay ── */
@@ -66,7 +68,6 @@
     transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     flex-direction: column;
-    padding: 0;
     box-shadow: var(--shadow-md);
   }
   .drawer.open { transform: translateX(0); }
@@ -107,11 +108,14 @@
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
     margin-bottom: 2px;
+    border: none;
+    background: transparent;
+    width: 100%;
+    text-align: left;
   }
 
   .drawer-item:hover { background: var(--surface-2); color: var(--text); }
   .drawer-item.active { background: var(--surface-2); color: var(--text); }
-
   .drawer-item svg { width: 18px; height: 18px; flex-shrink: 0; }
 
   .drawer-tag {
@@ -130,6 +134,7 @@
     border-top: 1px solid var(--border);
     font-size: 11px;
     color: var(--text-3);
+    font-family: var(--mono);
   }
 
   /* ── Header ── */
@@ -181,6 +186,7 @@
     border-radius: 50%;
     background: var(--green-light);
     animation: breathe 2.5s ease-in-out infinite;
+    transition: background 0.3s;
   }
 
   @keyframes breathe {
@@ -188,11 +194,15 @@
     50% { opacity: 0.5; transform: scale(0.85); }
   }
 
+  /* ── Screen system ── */
+  .screen { display: none; }
+  .screen.active { display: block; }
+
   /* ── Main content ── */
   main {
     max-width: 480px;
     margin: 0 auto;
-    padding: 24px 16px 40px;
+    padding: 24px 16px 120px;
   }
 
   /* ── Summary banner ── */
@@ -209,8 +219,6 @@
     gap: 16px;
   }
 
-  .summary-left {}
-
   .summary-greeting {
     font-size: 13px;
     color: var(--text-3);
@@ -221,9 +229,6 @@
     font-size: 16px;
     font-weight: 600;
     color: var(--text);
-    display: flex;
-    align-items: center;
-    gap: 8px;
   }
 
   .summary-icon {
@@ -233,11 +238,12 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    transition: background 0.3s;
   }
 
-  .summary-icon.ok { background: var(--green-bg); }
+  .summary-icon.ok   { background: var(--green-bg); }
   .summary-icon.warn { background: var(--amber-bg); }
-  .summary-icon svg { width: 22px; height: 22px; }
+  .summary-icon svg  { width: 22px; height: 22px; }
 
   /* ── Section label ── */
   .section-label {
@@ -262,9 +268,13 @@
     display: flex;
     align-items: center;
     gap: 16px;
-    transition: transform 0.15s, box-shadow 0.15s;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
   }
 
+  .device-card:hover  { border-color: var(--border-med); }
   .device-card:active { transform: scale(0.99); }
 
   .device-icon-wrap {
@@ -274,13 +284,36 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    transition: transform 0.12s, opacity 0.12s;
+    cursor: pointer;
+    position: relative;
+  }
+
+  .device-icon-wrap.sending {
+    opacity: 0.5;
   }
 
   .device-icon-wrap svg { width: 24px; height: 24px; }
 
-  .icon-gate    { background: #E8F4FD; }
-  .icon-power   { background: #FFF9E6; }
-  .icon-pump    { background: #E8F8F2; }
+  .icon-gate  { background: #E8F4FD; }
+  .icon-power { background: #FFF9E6; }
+  .icon-pump  { background: #E8F8F2; }
+
+  .icon-spinner {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .icon-spinner.visible { opacity: 1; }
+
+  .icon-spinner svg {
+    width: 20px; height: 20px;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   .device-info { flex: 1; min-width: 0; }
 
@@ -310,13 +343,14 @@
     font-weight: 500;
     padding: 3px 9px;
     border-radius: 20px;
+    transition: background 0.2s, color 0.2s;
   }
 
-  .pill-green  { background: var(--green-bg);  color: var(--green); }
-  .pill-amber  { background: var(--amber-bg);  color: var(--amber); }
-  .pill-red    { background: var(--red-bg);    color: var(--red); }
-  .pill-blue   { background: var(--blue-bg);   color: var(--blue); }
-  .pill-gray   { background: var(--surface-2); color: var(--text-2); }
+  .pill-green { background: var(--green-bg);  color: var(--green); }
+  .pill-amber { background: var(--amber-bg);  color: var(--amber); }
+  .pill-red   { background: var(--red-bg);    color: var(--red); }
+  .pill-blue  { background: var(--blue-bg);   color: var(--blue); }
+  .pill-gray  { background: var(--surface-2); color: var(--text-2); }
 
   .pill-dot {
     width: 5px; height: 5px;
@@ -328,40 +362,180 @@
     font-size: 11px;
     font-family: var(--mono);
     color: var(--text-3);
-  }
-
-  .device-right {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
     flex-shrink: 0;
   }
 
-  /* ── Last event ── */
+  /* safe default warning on card */
+  .safe-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: var(--red-bg);
+    color: var(--red);
+  }
+
+  /* ── Detail sheet ── */
+  .sheet-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.3);
+    z-index: 400;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease;
+  }
+  .sheet-backdrop.open { opacity: 1; pointer-events: all; }
+
+  .sheet {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    background: var(--surface);
+    border-radius: 20px 20px 0 0;
+    z-index: 500;
+    padding: 0 0 env(safe-area-inset-bottom, 0);
+    transform: translateY(100%);
+    transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+    max-height: 88vh;
+    overflow-y: auto;
+  }
+  .sheet.open { transform: translateY(0); }
+
+  .sheet-handle {
+    width: 36px; height: 4px;
+    background: var(--border-med);
+    border-radius: 2px;
+    margin: 12px auto 0;
+  }
+
+  .sheet-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sheet-icon-wrap {
+    width: 48px; height: 48px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .sheet-icon-wrap svg { width: 24px; height: 24px; }
+
+  .sheet-title {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+
+  .sheet-subtitle {
+    font-size: 13px;
+    color: var(--text-3);
+    font-family: var(--mono);
+  }
+
+  .sheet-body { padding: 20px 24px 32px; }
+
+  .sheet-section { margin-bottom: 24px; }
+
+  .sheet-section-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin-bottom: 10px;
+  }
+
+  .sheet-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .sheet-row:last-child { border-bottom: none; }
+
+  .sheet-row-label { font-size: 13px; color: var(--text-2); }
+  .sheet-row-value { font-size: 13px; color: var(--text); font-family: var(--mono); font-weight: 500; }
+
+  /* Confidence bar in sheet */
+  .conf-track {
+    flex: 1;
+    height: 5px;
+    background: var(--surface-2);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 0 12px;
+  }
+  .conf-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.4s ease;
+  }
+
+  /* Control button in sheet */
+  .sheet-control {
+    margin-top: 8px;
+  }
+
+  .ctrl-btn {
+    width: 100%;
+    padding: 14px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border-med);
+    background: var(--surface-2);
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .ctrl-btn:hover  { background: #E8E6E1; }
+  .ctrl-btn:active { transform: scale(0.99); }
+  .ctrl-btn svg    { width: 18px; height: 18px; }
+
+  .ctrl-btn.readonly {
+    opacity: 0.45;
+    cursor: default;
+    pointer-events: none;
+  }
+
+  /* ── Events ── */
   .last-event {
     background: var(--surface);
     border-radius: var(--r);
-    padding: 16px 20px;
     box-shadow: var(--shadow-sm);
     border: 1px solid var(--border);
+    overflow: hidden;
   }
 
   .event-row {
     display: flex;
     align-items: flex-start;
     gap: 12px;
-    padding: 10px 0;
+    padding: 12px 20px;
     border-bottom: 1px solid var(--border);
+    transition: background 0.12s;
   }
+  .event-row:last-child { border-bottom: none; }
 
-  .event-row:last-child { border-bottom: none; padding-bottom: 0; }
-  .event-row:first-child { padding-top: 0; }
-
-  .event-dot-wrap {
-    padding-top: 3px;
-    flex-shrink: 0;
-  }
+  .event-dot-wrap { padding-top: 4px; flex-shrink: 0; }
 
   .event-dot {
     width: 8px; height: 8px;
@@ -369,27 +543,85 @@
     background: var(--surface-2);
     border: 2px solid var(--border-med);
   }
-
-  .event-dot.green  { background: var(--green-bg);  border-color: var(--green-light); }
-  .event-dot.amber  { background: var(--amber-bg);  border-color: #FCD34D; }
-  .event-dot.red    { background: var(--red-bg);    border-color: #FCA5A5; }
+  .event-dot.green { background: var(--green-bg);  border-color: var(--green-light); }
+  .event-dot.amber { background: var(--amber-bg);  border-color: #FCD34D; }
+  .event-dot.red   { background: var(--red-bg);    border-color: #FCA5A5; }
+  .event-dot.blue  { background: var(--blue-bg);   border-color: #93C5FD; }
 
   .event-body { flex: 1; }
+  .event-desc { font-size: 13px; color: var(--text); line-height: 1.4; margin-bottom: 2px; }
+  .event-time { font-size: 11px; color: var(--text-3); font-family: var(--mono); }
 
-  .event-desc {
-    font-size: 13px;
-    color: var(--text);
-    line-height: 1.4;
-    margin-bottom: 2px;
+  /* ── Activity screen ── */
+  .activity-list { display: flex; flex-direction: column; gap: 0; }
+
+  /* ── Rules screen ── */
+  .rule-card {
+    background: var(--surface);
+    border-radius: var(--r);
+    padding: 16px 20px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
   }
 
-  .event-time {
-    font-size: 11px;
+  .rule-info { flex: 1; min-width: 0; }
+
+  .rule-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .rule-meta {
+    font-size: 12px;
     color: var(--text-3);
     font-family: var(--mono);
   }
 
-  /* ── Footer ── */
+  .rule-toggle {
+    width: 44px; height: 24px;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    flex-shrink: 0;
+    position: relative;
+    transition: background 0.2s;
+  }
+
+  .rule-toggle::after {
+    content: '';
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.2s;
+  }
+
+  .rule-toggle.on  { background: var(--green); }
+  .rule-toggle.off { background: var(--text-3); }
+  .rule-toggle.on::after { transform: translateX(20px); }
+
+  .rule-priority-badge {
+    font-size: 10px;
+    font-weight: 500;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: var(--surface-2);
+    color: var(--text-3);
+    font-family: var(--mono);
+    flex-shrink: 0;
+  }
+
+  /* ── Page footer ── */
   .page-footer {
     text-align: center;
     font-size: 11px;
@@ -398,7 +630,7 @@
     padding-top: 8px;
   }
 
-  /* ── Loading skeleton ── */
+  /* ── Empty / loading ── */
   .skeleton {
     background: linear-gradient(90deg, var(--surface-2) 25%, #E8E6E0 50%, var(--surface-2) 75%);
     background-size: 200% 100%;
@@ -408,13 +640,21 @@
   }
 
   @keyframes shimmer {
-    0% { background-position: 200% 0; }
+    0%   { background-position: 200% 0; }
     100% { background-position: -200% 0; }
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-3);
+    font-size: 13px;
+    line-height: 1.6;
   }
 
   /* ── Responsive ── */
   @media (min-width: 520px) {
-    main { padding: 32px 24px 48px; }
+    main { padding: 32px 24px 80px; }
     .device-card { padding: 20px 24px; }
   }
 </style>
@@ -431,46 +671,37 @@
     <div class="drawer-sub">Home Automation</div>
   </div>
   <nav class="drawer-nav">
-    <div class="drawer-item active" onclick="closeDrawer()">
+    <button class="drawer-item active" id="nav-home" onclick="navTo('home')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
         <polyline points="9 22 9 12 15 12 15 22"/>
       </svg>
       Home
-    </div>
-    <div class="drawer-item" onclick="closeDrawer()">
+    </button>
+    <button class="drawer-item" id="nav-activity" onclick="navTo('activity')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
       </svg>
       Activity
-      <span class="drawer-tag">Soon</span>
-    </div>
-    <div class="drawer-item" onclick="closeDrawer()">
+    </button>
+    <button class="drawer-item" id="nav-rules" onclick="navTo('rules')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="3"/>
         <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
       </svg>
-      Automations
-      <span class="drawer-tag">Soon</span>
-    </div>
-    <div class="drawer-item" onclick="closeDrawer()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="3"/>
-        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
-      </svg>
-      Settings
-      <span class="drawer-tag">Soon</span>
-    </div>
-    <div class="drawer-item" onclick="closeDrawer()">
+      Rules
+    </button>
+    <button class="drawer-item" onclick="closeDrawer()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="10"/>
         <line x1="12" y1="8" x2="12" y2="12"/>
         <line x1="12" y1="16" x2="12.01" y2="16"/>
       </svg>
       About
-    </div>
+      <span class="drawer-tag">Soon</span>
+    </button>
   </nav>
-  <div class="drawer-footer">Kaya v0.1.0 · Local</div>
+  <div class="drawer-footer">2red2blue v0.1.0 · Local</div>
 </div>
 
 <!-- Header -->
@@ -482,20 +713,20 @@
       <line x1="3" y1="18" x2="21" y2="18"/>
     </svg>
   </button>
-  <span class="header-title">Kaya</span>
+  <span class="header-title" id="header-title">Smarthome</span>
   <div class="header-status">
     <div class="status-dot" id="status-dot"></div>
     <span id="last-updated">—</span>
   </div>
 </header>
 
-<!-- Main -->
+<!-- ═══ HOME SCREEN ═══════════════════════════════════════════════════════ -->
+<div class="screen active" id="screen-home">
 <main>
 
-  <!-- Summary -->
   <div class="summary" id="summary-card">
-    <div class="summary-left">
-      <div class="summary-greeting">Good morning</div>
+    <div>
+      <div class="summary-greeting" id="summary-greeting">Good morning</div>
       <div class="summary-status" id="summary-text">Loading…</div>
     </div>
     <div class="summary-icon ok" id="summary-icon">
@@ -505,7 +736,6 @@
     </div>
   </div>
 
-  <!-- Devices -->
   <div class="section-label">Devices</div>
   <div class="devices" id="devices-panel">
     <div class="device-card">
@@ -522,7 +752,6 @@
     </div>
   </div>
 
-  <!-- Recent events placeholder -->
   <div class="section-label">Recent</div>
   <div class="last-event" id="events-panel">
     <div class="event-row">
@@ -537,9 +766,220 @@
 
   <div class="page-footer" id="page-footer"></div>
 </main>
+</div>
+
+<!-- ═══ ACTIVITY SCREEN ═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-activity">
+<main>
+  <div class="section-label" style="margin-bottom:14px">Activity log</div>
+  <div class="last-event activity-list" id="activity-panel">
+    <div class="event-row">
+      <div class="event-dot-wrap"><div class="event-dot"></div></div>
+      <div class="event-body"><div class="skeleton" style="width:200px;margin-bottom:5px"></div><div class="skeleton" style="width:70px;height:10px"></div></div>
+    </div>
+    <div class="event-row">
+      <div class="event-dot-wrap"><div class="event-dot"></div></div>
+      <div class="event-body"><div class="skeleton" style="width:170px;margin-bottom:5px"></div><div class="skeleton" style="width:70px;height:10px"></div></div>
+    </div>
+    <div class="event-row">
+      <div class="event-dot-wrap"><div class="event-dot"></div></div>
+      <div class="event-body"><div class="skeleton" style="width:140px;margin-bottom:5px"></div><div class="skeleton" style="width:70px;height:10px"></div></div>
+    </div>
+  </div>
+</main>
+</div>
+
+<!-- ═══ RULES SCREEN ══════════════════════════════════════════════════════ -->
+<div class="screen" id="screen-rules">
+<main>
+  <div class="section-label" style="margin-bottom:14px">Automation rules</div>
+  <div id="rules-panel">
+    <div class="rule-card">
+      <div class="rule-info"><div class="skeleton" style="width:120px;margin-bottom:6px"></div><div class="skeleton" style="width:80px;height:11px"></div></div>
+      <div class="skeleton" style="width:44px;height:24px;border-radius:12px"></div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-info"><div class="skeleton" style="width:150px;margin-bottom:6px"></div><div class="skeleton" style="width:60px;height:11px"></div></div>
+      <div class="skeleton" style="width:44px;height:24px;border-radius:12px"></div>
+    </div>
+  </div>
+</main>
+</div>
+
+<!-- ═══ DETAIL SHEET ══════════════════════════════════════════════════════ -->
+<div class="sheet-backdrop" id="sheet-backdrop" onclick="closeSheet()"></div>
+<div class="sheet" id="detail-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <div class="sheet-icon-wrap" id="sheet-icon-wrap"></div>
+    <div>
+      <div class="sheet-title" id="sheet-title">—</div>
+      <div class="sheet-subtitle" id="sheet-id">—</div>
+    </div>
+  </div>
+  <div class="sheet-body">
+
+    <div class="sheet-section">
+      <div class="sheet-section-label">State</div>
+      <div class="sheet-row">
+        <span class="sheet-row-label">Current</span>
+        <span class="sheet-row-value" id="sheet-actual">—</span>
+      </div>
+      <div class="sheet-row" id="sheet-desired-row">
+        <span class="sheet-row-label">Desired</span>
+        <span class="sheet-row-value" id="sheet-desired">—</span>
+      </div>
+      <div class="sheet-row" id="sheet-safe-default-row" style="display:none">
+        <span class="sheet-row-label" style="color:var(--red)">Safe default</span>
+        <span class="sheet-row-value" style="color:var(--red)" id="sheet-safe-default">—</span>
+      </div>
+    </div>
+
+    <div class="sheet-section">
+      <div class="sheet-section-label">Confidence</div>
+      <div style="display:flex;align-items:center;gap:0;padding:8px 0">
+        <span style="font-size:12px;color:var(--text-3);font-family:var(--mono);width:28px">0</span>
+        <div class="conf-track">
+          <div class="conf-fill" id="sheet-conf-fill" style="width:0%;background:var(--green)"></div>
+        </div>
+        <span style="font-size:13px;color:var(--text);font-family:var(--mono);font-weight:500;width:36px;text-align:right" id="sheet-conf-pct">—</span>
+      </div>
+    </div>
+
+    <div class="sheet-section sheet-control" id="sheet-control">
+      <div class="sheet-section-label" id="sheet-control-label">Control</div>
+      <button class="ctrl-btn" id="sheet-ctrl-btn" onclick="sheetControl()">
+        <svg id="sheet-ctrl-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+        <span id="sheet-ctrl-label">—</span>
+      </button>
+    </div>
+
+  </div>
+</div>
 
 <script>
-// ── Drawer ───────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const UNKNOWN_THRESHOLD = 0.2;
+const POLL_MS = 3000;
+let _lastState = {};
+let _sheetDeviceId = null;
+
+// ── Device meta ───────────────────────────────────────────────────────────────
+
+const DEVICE_META = {
+  main_gate: {
+    label: 'Main Gate',
+    iconClass: 'icon-gate',
+    icon: (stroke) => `<svg viewBox="0 0 24 24" fill="none" stroke="${stroke||'#1E6FA5'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>`,
+    stateLabel: v => {
+      if (v === 'locked')   return { text: 'Locked',   cls: 'pill-green' };
+      if (v === 'unlocked') return { text: 'Unlocked', cls: 'pill-amber' };
+      return { text: v || '—', cls: 'pill-gray' };
+    },
+    writable: true,
+    toggleAttr: 'state',
+    toggleValue: v => v === 'locked' ? 'unlocked' : 'locked',
+    controlLabel: v => v === 'locked' ? 'Unlock gate' : 'Lock gate',
+    controlIcon: `<path d="M7 11V7a5 5 0 0 1 9.9-1"/><rect x="3" y="11" width="18" height="11" rx="2"/><line x1="12" y1="15" x2="12" y2="18"/>`,
+  },
+  mains_power: {
+    label: 'Mains Power',
+    iconClass: 'icon-power',
+    icon: (stroke) => `<svg viewBox="0 0 24 24" fill="none" stroke="${stroke||'#B45309'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+    </svg>`,
+    stateLabel: v => {
+      if (v === 'kplc')   return { text: 'Grid power', cls: 'pill-green' };
+      if (v === 'outage') return { text: 'Power out',  cls: 'pill-red' };
+      return { text: v || '—', cls: 'pill-gray' };
+    },
+    writable: false,
+    controlLabel: () => 'Read-only',
+    controlIcon: `<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>`,
+  },
+  borehole_pump: {
+    label: 'Borehole Pump',
+    iconClass: 'icon-pump',
+    icon: (stroke) => `<svg viewBox="0 0 24 24" fill="none" stroke="${stroke||'#1D7A54'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 2a10 10 0 0 1 0 20"/>
+      <path d="M12 2a10 10 0 0 0 0 20"/>
+      <path d="M12 8v8M8 12h8"/>
+    </svg>`,
+    stateLabel: v => {
+      if (v === 'on')  return { text: 'Running', cls: 'pill-green' };
+      if (v === 'off') return { text: 'Stopped', cls: 'pill-gray' };
+      return { text: v || '—', cls: 'pill-gray' };
+    },
+    writable: true,
+    toggleAttr: 'state',
+    toggleValue: v => v === 'on' ? 'off' : 'on',
+    controlLabel: v => v === 'on' ? 'Stop pump' : 'Start pump',
+    controlIcon: `<path d="M12 2a10 10 0 0 1 0 20"/><path d="M12 2a10 10 0 0 0 0 20"/><path d="M12 8v8M8 12h8"/>`,
+  },
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function valueStr(v) {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'object') { const k = Object.keys(v)[0]; return String(v[k]); }
+  return String(v);
+}
+
+function getEffective(attr, actual, conf, safeDefault) {
+  if (conf <= UNKNOWN_THRESHOLD) {
+    const sd = safeDefault && safeDefault[attr] !== undefined ? valueStr(safeDefault[attr]) : null;
+    if (sd !== null) return { value: sd, isSafeDefault: true };
+  }
+  const v = actual && actual[attr] !== undefined ? valueStr(actual[attr]) : null;
+  return { value: v || '—', isSafeDefault: false };
+}
+
+function confColor(v) {
+  if (v >= 0.8) return '#2D6A4F';
+  if (v >= 0.5) return '#B45309';
+  return '#991B1B';
+}
+
+function timeAgo(ts) {
+  if (!ts) return '';
+  const s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (s < 5)   return 'just now';
+  if (s < 60)  return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+
+let currentScreen = 'home';
+
+function navTo(name) {
+  closeDrawer();
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.drawer-item').forEach(i => i.classList.remove('active'));
+  document.getElementById('screen-' + name).classList.add('active');
+  document.getElementById('nav-' + name)?.classList.add('active');
+  currentScreen = name;
+  const titles = { home: 'Kaya', activity: 'Activity', rules: 'Rules' };
+  document.getElementById('header-title').textContent = titles[name] || 'Kaya';
+  if (name === 'activity') refreshActivity();
+  if (name === 'rules')    refreshRules();
+}
+
+// ── Drawer ────────────────────────────────────────────────────────────────────
 
 function openDrawer() {
   document.getElementById('drawer').classList.add('open');
@@ -551,93 +991,140 @@ function closeDrawer() {
   document.getElementById('overlay').classList.remove('open');
 }
 
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeDrawer();
-});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDrawer(); closeSheet(); } });
 
-// ── Greeting ─────────────────────────────────────────────────────────────────
+// ── Detail sheet ──────────────────────────────────────────────────────────────
 
-function greeting() {
-  const h = new Date().getHours();
-  if (h < 12) return 'Good morning';
-  if (h < 17) return 'Good afternoon';
-  return 'Good evening';
-}
+function openSheet(deviceId) {
+  const d    = _lastState[deviceId];
+  const meta = DEVICE_META[deviceId];
+  if (!d || !meta) return;
 
-document.querySelector('.summary-greeting').textContent = greeting();
+  _sheetDeviceId = deviceId;
 
-// ── Device config ─────────────────────────────────────────────────────────────
-// Maps internal device_id to display info
+  const conf  = d.confidence ? d.confidence.value : 0;
+  const pct   = Math.round(conf * 100);
+  const sd    = d.confidence ? d.confidence.safe_default : {};
+  const attr  = Object.keys(d.actual || {})[0];
+  const eff   = attr ? getEffective(attr, d.actual, conf, sd) : { value: '—', isSafeDefault: false };
+  const desired = d.desired && attr ? valueStr(d.desired[attr]) : null;
 
-const DEVICE_META = {
-  main_gate: {
-    label: 'Main Gate',
-    iconClass: 'icon-gate',
-    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#1E6FA5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-    </svg>`,
-    stateLabel: v => {
-      if (v === 'locked')   return { text: 'Locked',   cls: 'pill-green' };
-      if (v === 'unlocked') return { text: 'Unlocked', cls: 'pill-amber' };
-      return { text: v || '—', cls: 'pill-gray' };
-    },
-  },
-  mains_power: {
-    label: 'Mains Power',
-    iconClass: 'icon-power',
-    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-    </svg>`,
-    stateLabel: v => {
-      if (v === 'kplc')   return { text: 'Grid power', cls: 'pill-green' };
-      if (v === 'outage') return { text: 'Power out',  cls: 'pill-red' };
-      return { text: v || '—', cls: 'pill-gray' };
-    },
-  },
-  borehole_pump: {
-    label: 'Borehole Pump',
-    iconClass: 'icon-pump',
-    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="#1D7A54" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 2a10 10 0 0 1 0 20"/>
-      <path d="M12 2a10 10 0 0 0 0 20"/>
-      <path d="M12 8v8M8 12h8"/>
-    </svg>`,
-    stateLabel: v => {
-      if (v === 'on')  return { text: 'Running', cls: 'pill-green' };
-      if (v === 'off') return { text: 'Stopped', cls: 'pill-gray' };
-      return { text: v || '—', cls: 'pill-gray' };
-    },
-  },
-};
+  document.getElementById('sheet-icon-wrap').className = 'sheet-icon-wrap ' + meta.iconClass;
+  document.getElementById('sheet-icon-wrap').innerHTML = meta.icon();
+  document.getElementById('sheet-title').textContent   = meta.label;
+  document.getElementById('sheet-id').textContent      = deviceId;
+  document.getElementById('sheet-actual').textContent  = eff.value;
 
-// ── Value helpers ─────────────────────────────────────────────────────────────
-
-function valueStr(v) {
-  if (!v) return null;
-  if (typeof v === 'object') {
-    const k = Object.keys(v)[0];
-    return String(v[k]);
+  if (desired !== null) {
+    document.getElementById('sheet-desired').textContent = desired;
+    document.getElementById('sheet-desired-row').style.display = '';
+  } else {
+    document.getElementById('sheet-desired-row').style.display = 'none';
   }
-  return String(v);
+
+  if (eff.isSafeDefault) {
+    const rawVal = attr && d.actual[attr] !== undefined ? valueStr(d.actual[attr]) : '—';
+    document.getElementById('sheet-safe-default').textContent = 'Active (raw: ' + rawVal + ')';
+    document.getElementById('sheet-safe-default-row').style.display = '';
+  } else {
+    document.getElementById('sheet-safe-default-row').style.display = 'none';
+  }
+
+  const fill = confColor(conf);
+  document.getElementById('sheet-conf-fill').style.width      = pct + '%';
+  document.getElementById('sheet-conf-fill').style.background = fill;
+  document.getElementById('sheet-conf-pct').textContent       = pct + '%';
+  document.getElementById('sheet-conf-pct').style.color       = fill;
+
+  // Control button
+  const ctrlBtn = document.getElementById('sheet-ctrl-btn');
+  if (meta.writable) {
+    ctrlBtn.classList.remove('readonly');
+    document.getElementById('sheet-ctrl-label').textContent = meta.controlLabel(eff.value);
+    document.getElementById('sheet-ctrl-icon').innerHTML = meta.controlIcon;
+    document.getElementById('sheet-control-label').textContent = 'Control';
+  } else {
+    ctrlBtn.classList.add('readonly');
+    document.getElementById('sheet-ctrl-label').textContent = 'Read-only device';
+    document.getElementById('sheet-ctrl-icon').innerHTML = `<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>`;
+    document.getElementById('sheet-control-label').textContent = 'Control';
+  }
+
+  document.getElementById('sheet-backdrop').classList.add('open');
+  document.getElementById('detail-sheet').classList.add('open');
 }
 
-function confPct(d) {
-  return d.confidence ? Math.round(d.confidence.value * 100) : 0;
+function closeSheet() {
+  document.getElementById('sheet-backdrop').classList.remove('open');
+  document.getElementById('detail-sheet').classList.remove('open');
+  _sheetDeviceId = null;
 }
 
-function timeAgo(ts) {
-  if (!ts) return '';
-  const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 60)  return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s/60)}m ago`;
-  if (s < 86400) return `${Math.floor(s/3600)}h ago`;
-  return `${Math.floor(s/86400)}d ago`;
+async function sheetControl() {
+  if (!_sheetDeviceId) return;
+  const d    = _lastState[_sheetDeviceId];
+  const meta = DEVICE_META[_sheetDeviceId];
+  if (!meta || !meta.writable) return;
+
+  const conf = d.confidence ? d.confidence.value : 0;
+  const sd   = d.confidence ? d.confidence.safe_default : {};
+  const attr = meta.toggleAttr;
+  const eff  = getEffective(attr, d.actual, conf, sd);
+  const next = meta.toggleValue(eff.value);
+
+  closeSheet();
+  await sendCommand(_sheetDeviceId, attr, next);
+}
+
+// ── Send command ──────────────────────────────────────────────────────────────
+
+const _pending = new Set();
+
+async function sendCommand(deviceId, attribute, value) {
+  if (_pending.has(deviceId)) return;
+  _pending.add(deviceId);
+
+  const iconWrap = document.querySelector(`[data-device-id="${deviceId}"] .device-icon-wrap`);
+  const spinner  = iconWrap?.querySelector('.icon-spinner');
+  if (iconWrap)  iconWrap.classList.add('sending');
+  if (spinner)   spinner.classList.add('visible');
+
+  try {
+    const r = await fetch('/command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_id: deviceId, attribute, value }),
+    });
+    if (!r.ok) console.warn('command rejected', r.status);
+  } catch (e) {
+    console.error('command failed', e);
+  } finally {
+    _pending.delete(deviceId);
+    if (iconWrap)  iconWrap.classList.remove('sending');
+    if (spinner)   spinner.classList.remove('visible');
+  }
+}
+
+// ── Tap icon → toggle; tap card body → detail ─────────────────────────────────
+
+function handleCardIconTap(e, deviceId) {
+  e.stopPropagation();
+  const meta = DEVICE_META[deviceId];
+  if (!meta || !meta.writable) return;
+  const d    = _lastState[deviceId];
+  if (!d) return;
+  const conf = d.confidence ? d.confidence.value : 0;
+  const sd   = d.confidence ? d.confidence.safe_default : {};
+  const attr = meta.toggleAttr;
+  const eff  = getEffective(attr, d.actual, conf, sd);
+  const next = meta.toggleValue(eff.value);
+  sendCommand(deviceId, attr, next);
 }
 
 // ── Render devices ────────────────────────────────────────────────────────────
 
 function renderDevices(data) {
+  _lastState = data;
   const entries = Object.entries(data);
   if (!entries.length) return;
 
@@ -648,26 +1135,34 @@ function renderDevices(data) {
     const meta = DEVICE_META[id];
     if (!meta) return '';
 
-    const conf  = d.confidence ? d.confidence.value : 0;
-    const pct   = Math.round(conf * 100);
-    const attr  = Object.keys(d.actual || {})[0];
-    const rawVal = attr ? valueStr(d.actual[attr]) : null;
-    const isSafe = conf <= 0.2 && d.confidence && d.confidence.safe_default;
+    const conf   = d.confidence ? d.confidence.value : 0;
+    const pct    = Math.round(conf * 100);
+    const sd     = d.confidence ? d.confidence.safe_default : {};
+    const attr   = Object.keys(d.actual || {})[0];
+    const eff    = attr ? getEffective(attr, d.actual, conf, sd) : { value: '—', isSafeDefault: false };
 
-    const displayVal = isSafe
-      ? valueStr(d.confidence.safe_default[attr])
-      : rawVal;
+    const { text, cls } = meta.stateLabel(eff.value);
+    const confClr = confColor(conf);
 
-    const { text, cls } = meta.stateLabel(displayVal);
+    if (id === 'mains_power' && eff.value === 'outage') anyOutage = true;
+    if (conf < UNKNOWN_THRESHOLD) anyAlert = true;
 
-    if (id === 'mains_power' && displayVal === 'outage') anyOutage = true;
-    if (conf < 0.2) anyAlert = true;
+    const safeTag = eff.isSafeDefault
+      ? `<span class="safe-badge">⚠ safe default</span>`
+      : '';
 
-    const confColor = conf >= 0.8 ? '#2D6A4F' : conf >= 0.5 ? '#B45309' : '#991B1B';
+    const spinnerSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="${confClr}" stroke-width="2" stroke-linecap="round">
+      <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+    </svg>`;
+
+    const iconClickable = meta.writable ? `onclick="handleCardIconTap(event,'${id}')" style="cursor:pointer"` : '';
 
     return `
-      <div class="device-card">
-        <div class="device-icon-wrap ${meta.iconClass}">${meta.icon}</div>
+      <div class="device-card" data-device-id="${id}" onclick="openSheet('${id}')">
+        <div class="device-icon-wrap ${meta.iconClass}" ${iconClickable}>
+          ${meta.icon()}
+          <div class="icon-spinner" aria-hidden="true">${spinnerSvg}</div>
+        </div>
         <div class="device-info">
           <div class="device-name">${meta.label}</div>
           <div class="device-state">
@@ -675,84 +1170,181 @@ function renderDevices(data) {
               <span class="pill-dot"></span>
               ${text}
             </span>
+            ${safeTag}
           </div>
         </div>
-        <div class="device-right">
-          <span class="device-conf" style="color:${confColor}">${pct}%</span>
-        </div>
+        <span class="device-conf" style="color:${confClr}">${pct}%</span>
       </div>`;
   }).join('');
 
   document.getElementById('devices-panel').innerHTML = html;
 
-  // Update summary
   const summaryText = document.getElementById('summary-text');
   const summaryIcon = document.getElementById('summary-icon');
 
   if (anyOutage) {
     summaryText.textContent = 'Power outage detected';
-    summaryIcon.className = 'summary-icon warn';
-    summaryIcon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
+    summaryIcon.className   = 'summary-icon warn';
+    summaryIcon.innerHTML   = `<svg viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
   } else if (anyAlert) {
     summaryText.textContent = 'Check device status';
-    summaryIcon.className = 'summary-icon warn';
-    summaryIcon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
+    summaryIcon.className   = 'summary-icon warn';
+    summaryIcon.innerHTML   = `<svg viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
   } else {
     summaryText.textContent = 'All systems normal';
-    summaryIcon.className = 'summary-icon ok';
-    summaryIcon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#2D6A4F" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+    summaryIcon.className   = 'summary-icon ok';
+    summaryIcon.innerHTML   = `<svg viewBox="0 0 24 24" fill="none" stroke="#2D6A4F" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+  }
+
+  // If sheet is open for this device, refresh it
+  if (_sheetDeviceId && data[_sheetDeviceId]) openSheet(_sheetDeviceId);
+}
+
+// ── Event translation ─────────────────────────────────────────────────────────
+
+function translateEvent(evt) {
+  const kind = evt.kind || evt.type || '';
+  const device = evt.device_id || '';
+  const meta = DEVICE_META[device];
+  const name = meta ? meta.label : device;
+
+  if (kind === 'StateChanged') {
+    const attr = Object.keys(evt.new_state || {})[0];
+    const val  = attr ? valueStr(evt.new_state[attr]) : '—';
+    const { text } = meta ? meta.stateLabel(val) : { text: val };
+    const prev = attr && evt.old_state ? valueStr(evt.old_state[attr]) : null;
+    const prevText = prev && meta ? meta.stateLabel(prev).text : prev;
+    return {
+      desc: prev
+        ? `${name}: ${prevText} → ${text}`
+        : `${name}: ${text}`,
+      cls: val === 'outage' || val === 'off' ? 'amber'
+         : val === 'unlocked' ? 'amber'
+         : 'green',
+    };
+  }
+  if (kind === 'CommandConfirmed') {
+    return { desc: `${name}: command confirmed`, cls: 'green' };
+  }
+  if (kind === 'CommandFailed') {
+    return { desc: `${name}: command failed`, cls: 'red' };
+  }
+  if (kind === 'CommandDispatched' || kind === 'CommandIssued') {
+    const attr = evt.attribute || '';
+    const val  = valueStr(evt.value) || '—';
+    return { desc: `${name}: sending ${attr}=${val}`, cls: 'blue' };
+  }
+  if (kind === 'ConfidenceLow') {
+    return { desc: `${name}: confidence low — safe default applied`, cls: 'amber' };
+  }
+  if (kind === 'ReconciliationComplete') {
+    return { desc: `Boot reconciliation complete`, cls: 'green' };
+  }
+  return { desc: kind + (device ? ` · ${name}` : ''), cls: 'gray' };
+}
+
+function eventRowHtml(evt, full) {
+  const { desc, cls } = translateEvent(evt);
+  const ts = evt.timestamp || evt.ts || evt.time;
+  const timeStr = ts ? timeAgo(ts) : 'now';
+  return `
+    <div class="event-row">
+      <div class="event-dot-wrap"><div class="event-dot ${cls}"></div></div>
+      <div class="event-body">
+        <div class="event-desc">${desc}</div>
+        <div class="event-time">${timeStr}</div>
+      </div>
+    </div>`;
+}
+
+// ── Render recent events (home screen) ────────────────────────────────────────
+
+function renderRecentEvents(events) {
+  const recent = (events || []).slice(-5).reverse();
+  if (!recent.length) {
+    document.getElementById('events-panel').innerHTML =
+      '<div style="padding:16px 20px;font-size:13px;color:var(--text-3)">No recent events</div>';
+    return;
+  }
+  document.getElementById('events-panel').innerHTML = recent.map(e => eventRowHtml(e)).join('');
+}
+
+// ── Activity screen ───────────────────────────────────────────────────────────
+
+async function refreshActivity() {
+  try {
+    const events = await fetch('/events').then(r => r.json());
+    const reversed = [...events].reverse();
+    if (!reversed.length) {
+      document.getElementById('activity-panel').innerHTML =
+        '<div class="empty-state">No activity yet</div>';
+      return;
+    }
+    document.getElementById('activity-panel').innerHTML =
+      reversed.map(e => eventRowHtml(e, true)).join('');
+  } catch (_) {
+    document.getElementById('activity-panel').innerHTML =
+      '<div class="empty-state">Could not load activity</div>';
   }
 }
 
-// ── Render recent events (from device state history) ──────────────────────────
+// ── Rules screen ──────────────────────────────────────────────────────────────
 
-function renderEvents(data) {
-  const events = [];
+async function refreshRules() {
+  try {
+    const data  = await fetch('/rules').then(r => r.json());
+    const rules = data.rules || [];
 
-  Object.entries(data).forEach(([id, d]) => {
-    const meta = DEVICE_META[id];
-    if (!meta) return;
-    const attr = Object.keys(d.actual || {})[0];
-    const val  = attr ? valueStr(d.actual[attr]) : null;
-    if (!val) return;
-    const { text } = meta.stateLabel(val);
-    events.push({
-      desc: `${meta.label} — ${text}`,
-      time: Date.now(),
-      cls:  val === 'outage' ? 'red' : val === 'unlocked' ? 'amber' : 'green',
-    });
-  });
+    if (!rules.length) {
+      document.getElementById('rules-panel').innerHTML =
+        '<div class="empty-state">No rules loaded</div>';
+      return;
+    }
 
-  if (!events.length) {
-    document.getElementById('events-panel').innerHTML =
-      '<div style="padding:12px 0;font-size:13px;color:var(--text-3);text-align:center">No recent events</div>';
-    return;
+    document.getElementById('rules-panel').innerHTML = rules.map(r => `
+      <div class="rule-card">
+        <div class="rule-info">
+          <div class="rule-name">${r.name || r.id}</div>
+          <div class="rule-meta">${r.id} · pri ${r.priority} · ${r.conflict_group || 'default'}</div>
+        </div>
+        <span class="rule-priority-badge">${r.priority}</span>
+        <button
+          class="rule-toggle ${r.enabled ? 'on' : 'off'}"
+          aria-label="${r.enabled ? 'Disable' : 'Enable'} rule ${r.name || r.id}"
+          onclick="toggleRule('${r.id}', ${r.enabled})">
+        </button>
+      </div>`).join('');
+  } catch (_) {
+    document.getElementById('rules-panel').innerHTML =
+      '<div class="empty-state">Could not load rules</div>';
   }
+}
 
-  document.getElementById('events-panel').innerHTML = events.map(e => `
-    <div class="event-row">
-      <div class="event-dot-wrap"><div class="event-dot ${e.cls}"></div></div>
-      <div class="event-body">
-        <div class="event-desc">${e.desc}</div>
-        <div class="event-time">just now</div>
-      </div>
-    </div>`).join('');
+async function toggleRule(id, currentlyEnabled) {
+  const action = currentlyEnabled ? 'disable' : 'enable';
+  try {
+    await fetch(`/rules/${id}/${action}`, { method: 'POST' });
+    await refreshRules();
+  } catch (e) {
+    console.error('rule toggle failed', e);
+  }
 }
 
 // ── Poll ──────────────────────────────────────────────────────────────────────
 
 async function poll() {
   try {
-    const r = await fetch('/state');
-    if (!r.ok) throw new Error(r.status);
-    const data = await r.json();
+    const [state, events] = await Promise.all([
+      fetch('/state').then(r => r.json()),
+      fetch('/events').then(r => r.json()),
+    ]);
 
-    renderDevices(data);
-    renderEvents(data);
+    renderDevices(state);
+    renderRecentEvents(events);
 
     const now = new Date().toLocaleTimeString('en-GB', { hour12: false });
     document.getElementById('last-updated').textContent = now;
-    document.getElementById('status-dot').style.background = 'var(--green-light)';
+    document.getElementById('status-dot').style.background = '#95D5B2';
     document.getElementById('page-footer').textContent = `Updated ${now}`;
   } catch (e) {
     document.getElementById('status-dot').style.background = '#FCA5A5';
@@ -760,8 +1352,11 @@ async function poll() {
   }
 }
 
+// ── Boot ──────────────────────────────────────────────────────────────────────
+
+document.getElementById('summary-greeting').textContent = greeting();
 poll();
-setInterval(poll, 3000);
+setInterval(poll, POLL_MS);
 </script>
 </body>
 </html>
