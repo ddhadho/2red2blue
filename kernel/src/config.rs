@@ -78,6 +78,7 @@ pub struct PlatformConfig {
 pub struct HaConfig {
     pub url:     String,
     pub token:   String,
+    #[serde(default)]
     pub devices: Vec<HaDeviceConfig>,
 }
 

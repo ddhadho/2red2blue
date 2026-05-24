@@ -27,20 +27,30 @@ pub struct DeviceRegistry {
 
 impl DeviceRegistry {
     pub fn load(path: &str) -> Result<Self, RegistryError> {
-        let contents = std::fs::read_to_string(path)
-            .map_err(|e| RegistryError::IoError(e.to_string()))?;
+        let contents = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                info!(path = %path, "device registry not found — starting empty");
+                return Ok(Self {
+                    devices: HashMap::new(),
+                    external_to_internal: HashMap::new(),
+                });
+            }
+            Err(e) => return Err(RegistryError::IoError(e.to_string())),
+        };
 
-        let file: DeviceFile = if contents.trim().is_empty() {
+        let device_file: DeviceFile = if contents.trim().is_empty() {
             DeviceFile { devices: vec![] }
         } else {
             toml::from_str(&contents)
                 .map_err(|e| RegistryError::ParseError(e.to_string()))?
         };
 
+
         let mut devices = HashMap::new();
         let mut external_to_internal = HashMap::new();
 
-        for entry in file.devices {
+        for entry in device_file.devices {
             let device_id = DeviceId(entry.id.clone());
 
             let kind = match entry.kind.as_str() {

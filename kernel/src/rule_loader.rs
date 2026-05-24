@@ -10,12 +10,24 @@ use crate::rule_types::*;
 /// Invalid rules are logged as warnings and skipped — the daemon never
 /// crashes on a bad rule file. Returns Err only if the file cannot be
 /// read or parsed at all.
+
 pub fn load_rules(
     path: &str,
     registry: &DeviceRegistry,
 ) -> Result<Vec<Rule>, RuleError> {
-    let contents = std::fs::read_to_string(path)
-        .map_err(|e| RuleError::IoError(e.to_string()))?;
+    let contents = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            info!(path = %path, "rules file not found — starting with no rules");
+            return Ok(vec![]);
+        }
+        Err(e) => return Err(RuleError::IoError(e.to_string())),
+    };
+
+    if contents.trim().is_empty() {
+        info!(path = %path, "rules file empty — starting with no rules");
+        return Ok(vec![]);
+    }
 
     let file: RuleFile = toml::from_str(&contents)
         .map_err(|e| RuleError::ParseError(e.to_string()))?;
