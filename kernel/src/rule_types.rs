@@ -57,6 +57,8 @@ pub struct ActionEntry {
     pub value_int: Option<i64>,
     pub value_bool: Option<bool>,
     pub delay_seconds: Option<u64>,
+    #[serde(default)]
+    pub params: HashMap<String, toml::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -129,6 +131,7 @@ pub struct Action {
     pub device_id: DeviceId,
     pub attribute: AttributeKey,
     pub value: Value,
+    pub params: HashMap<String, Value>, 
     pub delay_seconds: Option<u64>,
 }
 
@@ -185,6 +188,8 @@ pub struct SerializedAction {
     pub device_id: String,
     pub attribute: String,
     pub value: Value,
+    #[serde(default)]
+    pub params: HashMap<String, Value>,  
 }
 
 impl SerializedAction {
@@ -193,6 +198,7 @@ impl SerializedAction {
             device_id: action.device_id.0.clone(),
             attribute: action.attribute.0.clone(),
             value: action.value.clone(),
+            params: action.params.clone(),
         }
     }
 
@@ -201,6 +207,7 @@ impl SerializedAction {
             device_id: DeviceId(self.device_id.clone()),
             attribute: AttributeKey(self.attribute.clone()),
             value: self.value.clone(),
+            params: self.params.clone(), 
             delay_seconds: None,
         }
     }

@@ -667,6 +667,7 @@ fn send_to_adapter(
         external_id:  command.device_id.0.clone(),
         attribute:    command.attribute.0.clone(),
         value:        command.value.clone(),
+        params:      command.params.clone(),
         command_id:   command.id.clone(),
     };
 

@@ -472,11 +472,61 @@ impl DeviceAdapter for HaAdapter {
             service
         );
 
+        // ── Build request body ────────────────────────────────────────────────
+        //
+        // Always includes entity_id. Additional service-call parameters
+        // (brightness, rgb_color, etc.) are passed through from command.params
+        // verbatim — the daemon doesn't validate which params a given HA
+        // service accepts; HA does that, and rejects the call if we send
+        // garbage. This keeps the adapter service-agnostic: any HA service
+        // that takes extra fields on top of entity_id works without adapter
+        // changes, as long as the rule author supplies the right keys.
+        //
+        // Special case: rgb_color. HA expects a 3-element array, but Value
+        // has no array variant, so rule authors supply three scalar params
+        // (rgb_color_r / rgb_color_g / rgb_color_b) and we assemble them into
+        // the array HA expects here. All other params pass through as-is.
+
+        let mut body = serde_json::Map::new();
+        body.insert(
+            "entity_id".to_string(),
+            serde_json::json!(device_cfg.ha_entity_id),
+        );
+
+        let mut rgb_r: Option<i64> = None;
+        let mut rgb_g: Option<i64> = None;
+        let mut rgb_b: Option<i64> = None;
+
+        for (key, val) in &command.params {
+            match key.as_str() {
+                "rgb_color_r" => rgb_r = value_to_i64(val),
+                "rgb_color_g" => rgb_g = value_to_i64(val),
+                "rgb_color_b" => rgb_b = value_to_i64(val),
+                _ => {
+                    body.insert(key.clone(), value_to_json(val));
+                }
+            }
+        }
+
+        match (rgb_r, rgb_g, rgb_b) {
+            (Some(r), Some(g), Some(b)) => {
+                body.insert("rgb_color".to_string(), serde_json::json!([r, g, b]));
+            }
+            (None, None, None) => {} // no rgb params supplied — fine
+            _ => {
+                tracing::warn!(
+                    device_id = %command.external_id,
+                    "rgb_color_r/g/b partially supplied — dropping incomplete rgb_color"
+                );
+            }
+        }
+
         tracing::info!(
             device_id  = %command.external_id,
             entity_id  = %device_cfg.ha_entity_id,
             service    = %service,
             value      = %value_str,
+            params     = ?command.params,
             command_id = %command.command_id,
             "sending command to HA"
         );
@@ -496,7 +546,7 @@ impl DeviceAdapter for HaAdapter {
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.config.token))
             .header("Content-Type", "application/json")
-            .json(&serde_json::json!({ "entity_id": device_cfg.ha_entity_id }))
+            .json(&serde_json::Value::Object(body))
             .send()
             .await
             .map_err(|e| AdapterError::Transport(e.to_string()))?;
@@ -598,4 +648,28 @@ fn now_ms() -> u64 {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+/// Convert our Value enum into the equivalent serde_json::Value for
+/// inclusion in an HA service-call body.
+fn value_to_json(v: &Value) -> serde_json::Value {
+    match v {
+        Value::Bool(b)  => serde_json::json!(b),
+        Value::Int(i)   => serde_json::json!(i),
+        Value::Float(f) => serde_json::json!(f),
+        Value::Text(s)  => serde_json::json!(s),
+        Value::Null     => serde_json::Value::Null,
+    }
+}
+
+/// Best-effort extraction of an i64 from a Value — used for assembling
+/// rgb_color from its three scalar params. Accepts Int directly, and Text
+/// if it happens to parse cleanly (covers TOML round-tripping oddities).
+fn value_to_i64(v: &Value) -> Option<i64> {
+    match v {
+        Value::Int(i)  => Some(*i),
+        Value::Float(f) => Some(*f as i64),
+        Value::Text(s)  => s.parse().ok(),
+        _ => None,
+    }
 }

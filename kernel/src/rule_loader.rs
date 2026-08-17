@@ -146,10 +146,15 @@ fn parse_actions(
             ));
         }
 
+        let params = a.params.iter()
+            .map(|(k, v)| (k.clone(), toml_to_value(v)))
+            .collect();
+
         Ok(Action {
             device_id,
             attribute: AttributeKey(a.attribute.clone()),
             value: parse_action_value(a),
+            params,                      // NEW
             delay_seconds: a.delay_seconds,
         })
     }).collect()
@@ -238,4 +243,17 @@ fn parse_action_value(a: &ActionEntry) -> Value {
     if let Some(v) = a.value_int   { return Value::Int(v); }
     if let Some(v) = a.value_bool  { return Value::Bool(v); }
     Value::Null
+}
+
+fn toml_to_value(v: &toml::Value) -> Value {
+    match v {
+        toml::Value::String(s)  => Value::Text(s.clone()),
+        toml::Value::Integer(i) => Value::Int(*i),
+        toml::Value::Float(f)   => Value::Float(*f),
+        toml::Value::Boolean(b) => Value::Bool(*b),
+        // Value has no array/table variant — fall back to a debug string
+        // rather than silently dropping the param. Extend Value if you
+        // need real array/table params later.
+        other => Value::Text(format!("{:?}", other)),
+    }
 }

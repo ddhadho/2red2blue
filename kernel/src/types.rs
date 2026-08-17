@@ -288,6 +288,8 @@ pub struct Command {
     pub device_id: DeviceId,
     pub attribute: AttributeKey,
     pub value: Value,
+    #[serde(default)]
+    pub params: HashMap<String, Value>,  
     pub issued_at: u64,
     pub status: CommandStatus,
     pub retry_count: u8,
@@ -301,6 +303,17 @@ impl Command {
         rule_id: Option<RuleId>,
         priority: u8,
     ) -> Self {
+        Self::new_with_params(device_id, attribute, value, HashMap::new(), rule_id, priority)
+    }
+
+    pub fn new_with_params(
+        device_id: DeviceId,
+        attribute: AttributeKey,
+        value: Value,
+        params: HashMap<String, Value>,
+        rule_id: Option<RuleId>,
+        priority: u8,
+    ) -> Self {
         Self {
             id: Ulid::new().to_string(),
             rule_id,
@@ -308,6 +321,7 @@ impl Command {
             device_id,
             attribute,
             value,
+            params,
             issued_at: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
@@ -344,5 +358,6 @@ pub struct AdapterCommand {
     pub external_id: String,
     pub attribute: String,
     pub value: Value,
+    pub params: HashMap<String, Value>,  
     pub command_id: String,
 }

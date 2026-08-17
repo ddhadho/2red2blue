@@ -3,9 +3,9 @@
 [![Language](https://img.shields.io/badge/language-Rust-orange.svg)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20OpenWrt-blue.svg)]()
 
-A deterministic, crash-resilient smart home automation daemon written in Rust.
+A deterministic, crash-resilient smart home automation daemon.
 
-Connects to Home Assistant over WebSocket and REST. Applies declarative rules. Survives power cuts. Restores the home to its correct state automatically on every reboot — without internet, without cloud, without manual intervention.
+Connects to Home Assistant over WebSocket and REST. Applies declarative rules. 
 
 ---
 
